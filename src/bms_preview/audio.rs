@@ -361,9 +361,5 @@ pub fn add_audio(
 }
 
 pub fn get_length_from_codec(codec: &CodecParameters) -> Option<f64> {
-    let n_frames = codec.n_frames?;
-    let channels = codec.channels?;
-    let sample_rate = codec.sample_rate?;
-
-    Some(n_frames as f64 / channels.count() as f64 / sample_rate as f64)
+    Some(codec.time_base?.calc_time(codec.n_frames?).frac)
 }

@@ -94,7 +94,7 @@ impl Renderer {
                 continue;
             };
 
-            if let Ok(codec) = audio::get_wav_codec(name) {
+            if let Ok(codec) = audio::get_wav_codec(&self.base_path.join(name)) {
                 let length = audio::get_length_from_codec(&codec);
 
                 if length.is_some_and(|len| (obj_start_seconds + len) < start) {
