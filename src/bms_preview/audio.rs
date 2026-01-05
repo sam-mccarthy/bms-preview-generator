@@ -1,7 +1,6 @@
 use crate::bms_preview::errors::AudioError;
 
 use audioadapter_buffers::direct::SequentialSlice;
-use itertools::Itertools;
 use rubato::{Fft, FixedSync, Indexing, Resampler};
 use std::fs::File;
 use std::path::PathBuf;
