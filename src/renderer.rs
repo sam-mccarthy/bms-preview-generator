@@ -13,7 +13,7 @@ use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::command::time::ObjTime;
 use encoding_rs::{Encoding, UTF_8};
 use itertools::Itertools;
-use rubato::{Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{Fft, FixedSync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CodecParameters, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
@@ -50,24 +50,24 @@ pub enum AudioGenError {
     InvalidChannelCount(),
 }
 
-fn get_file_fuzzy(path: PathBuf) -> io::Result<PathBuf> {
+fn get_audio_fuzzy(path: PathBuf) -> io::Result<PathBuf> {
     if path.exists() {
         return Ok(path);
     }
 
-    let parent = path.parent().ok_or(io::ErrorKind::NotFound)?;
-    let items = fs::read_dir(parent)?;
-
-    match items.filter_map(|item| item.ok()).find(|item| {
-        item.path().file_stem() == path.file_stem()
-    }) {
-        Some(file) => Ok(file.path()),
-        None => Err(io::Error::new(io::ErrorKind::NotFound, "failed to find fuzzy file"))
+    let valid_exts = ["wav", "ogg", "mp3"];
+    for ext in valid_exts {
+        let alt_path = path.with_extension(ext);
+        if alt_path.exists() {
+            return Ok(alt_path);
+        }
     }
+
+    Err(io::Error::new(io::ErrorKind::NotFound, "failed to find fuzzy file"))
 }
 
 fn get_wav_codec(fuzzy_path: PathBuf) -> Result<CodecParameters, Box<dyn Error>> {
-    let path = get_file_fuzzy(fuzzy_path)?;
+    let path = get_audio_fuzzy(fuzzy_path)?;
 
     let file = Box::new(File::open(&path)?);
     let mss = MediaSourceStream::new(file, Default::default());
@@ -87,7 +87,7 @@ fn get_wav_codec(fuzzy_path: PathBuf) -> Result<CodecParameters, Box<dyn Error>>
 }
 
 fn read_wav(fuzzy_path: PathBuf) -> Result<AudioFile, Box<dyn Error>> {
-    let path = get_file_fuzzy(fuzzy_path)?;
+    let path = get_audio_fuzzy(fuzzy_path)?;
 
     let file = Box::new(File::open(&path)?);
     let mss = MediaSourceStream::new(file, Default::default());
@@ -159,21 +159,13 @@ fn read_wav(fuzzy_path: PathBuf) -> Result<AudioFile, Box<dyn Error>> {
 }
 
 fn resample_audio(src: &[f32], dst_sample_rate: u32, src_sample_rate: u32, src_channels: usize) -> Result<Vec<f32>, Box<dyn Error>> {
-    let params = SincInterpolationParameters {
-        sinc_len: 256,
-        f_cutoff: 0.95,
-        interpolation: SincInterpolationType::Linear,
-        oversampling_factor: 256,
-        window: WindowFunction::BlackmanHarris2,
-    };
-
-    let mut resampler = Async::<f32>::new_sinc(
-        dst_sample_rate as f64 / src_sample_rate as f64,
-        2.0,
-        &params,
+    let mut resampler = Fft::<f32>::new(
+        src_sample_rate as usize,
+        dst_sample_rate as usize,
         1024,
+        1,
         src_channels,
-        FixedAsync::Input,
+        FixedSync::Input,
     )?;
 
     // wrap it with an InterleavedSlice Adapter
