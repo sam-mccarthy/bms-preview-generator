@@ -70,7 +70,7 @@ pub fn read_wav(fuzzy_path: &PathBuf) -> Result<AudioFile, AudioError> {
     let mut format = probed.format;
     let track = format.default_track().unwrap();
     let codec = track.codec_params.clone();
-    // TODO: This would probably be better served with a separate error
+    
     let channels = codec
         .channels
         .ok_or(AudioError::MissingChannelInfo())?

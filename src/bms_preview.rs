@@ -35,8 +35,9 @@ pub struct Args {
 
     #[arg(long, default_value_t = false)]
     pub mono_audio: bool,
-
-    #[arg(long, default_value_t = 48000)]
+    
+    // The sample rate of the preview file. If zero, will default to the sample rate used by the song
+    #[arg(long, default_value_t = 0)]
     pub sample_rate: u32,
 
     #[arg(long, default_value_t = 1.0)]

@@ -119,40 +119,50 @@ impl Renderer {
         }
 
         const ENCODING_STEP_SIZE: usize = 1024;
-
+        
         let channels = if args.mono_audio { 1 } else { 2 };
-        let song_length = args.end - args.start;
+        let snip_length = args.end - args.start;
 
-        let req_samples = song_length * args.sample_rate as f64 * channels as f64;
-        let n_samples = ceil_n(req_samples, ENCODING_STEP_SIZE as f64 * channels as f64) as usize;
-
-        let mut render_buf = vec![0f32; n_samples];
-
+        let mut sample_rate = 0;
+        let mut render_buf = vec![];
         let timings = self.get_wav_timings(args.start, args.end);
 
         for (wav_path, timings) in timings {
             let Ok(mut wav) = audio::read_wav(&wav_path) else {
                 continue;
             };
+            
+            if sample_rate == 0 {
+                sample_rate = if args.sample_rate == 0 { 
+                    wav.sample_rate 
+                } else { 
+                    args.sample_rate 
+                };
+                
+                let req_samples = snip_length * sample_rate as f64 * channels as f64;
+                let n_samples = ceil_n(req_samples, ENCODING_STEP_SIZE as f64 * channels as f64) as usize;
+        
+                render_buf.resize(n_samples, 0.0);
+            }
 
-            if args.sample_rate != wav.sample_rate {
+            if sample_rate != wav.sample_rate {
                 match audio::resample_audio(
                     &wav.buffer[..],
-                    args.sample_rate,
+                    sample_rate,
                     wav.sample_rate,
                     wav.channels,
                 ) {
                     Ok(resampled) => wav.buffer = resampled,
                     Err(_) => continue,
                 }
-                wav.sample_rate = args.sample_rate;
+                wav.sample_rate = sample_rate;
             }
 
             for time in timings {
                 audio::add_audio(
                     &mut render_buf[..],
                     &wav.buffer[..],
-                    args.sample_rate,
+                    sample_rate,
                     channels,
                     wav.channels,
                     time - args.start,
@@ -162,14 +172,14 @@ impl Renderer {
 
         audio::fade_audio(
             &mut render_buf[..],
-            args.sample_rate,
+            sample_rate,
             channels,
             args.fade_in,
             false,
         );
         audio::fade_audio(
             &mut render_buf[..],
-            args.sample_rate,
+            sample_rate,
             channels,
             args.fade_out,
             true,
@@ -181,13 +191,13 @@ impl Renderer {
 
         let mut output_buf = Vec::new();
         let mut encoder = VorbisEncoderBuilder::new(
-            NonZeroU32::new(args.sample_rate).unwrap(),
+            NonZeroU32::new(sample_rate).unwrap(),
             NonZeroU8::new(channels as u8).unwrap(),
             &mut output_buf,
         )?
         .build()?;
 
-        let channel_size = n_samples / channels;
+        let channel_size = render_buf.len() / channels;
         let mut block: Vec<&[f32]> = vec![&[]; channels];
 
         for i in (0..channel_size).step_by(ENCODING_STEP_SIZE) {
