@@ -4,8 +4,8 @@ use crate::renderer::Renderer;
 use clap::Parser;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 use std::time::Instant;
+use std::{fs, io};
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None)]
@@ -36,9 +36,12 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     mono_audio: bool,
-    
+
     #[arg(long, default_value_t = 48000)]
-    sample_rate: u32
+    sample_rate: u32,
+
+    #[arg(long, default_value_t = 1.0)]
+    volume: f32,
 }
 
 fn get_bms_files(files: &mut Vec<PathBuf>, dir: &Path) -> io::Result<()> {
@@ -70,7 +73,7 @@ fn get_bms_files(files: &mut Vec<PathBuf>, dir: &Path) -> io::Result<()> {
 
 fn main() {
     let args = Args::parse();
-    
+
     let song_folder = Path::new(&args.songs_folder);
     if !song_folder.exists() || !song_folder.is_dir() {
         println!("bad songs folder");
@@ -83,18 +86,18 @@ fn main() {
     for file in bms_files {
         print!("processing {}", file.to_str().unwrap());
         let start = Instant::now();
-        
+
         let Ok(render) = Renderer::new(file) else {
             continue;
         };
-        
+
         if let Err(e) = render.process_bms_file(&args) {
             eprintln!("{}", e);
         }
-        
+
         let end = Instant::now();
         println!(" - took {:.2}s", (end - start).as_secs_f64());
-        
+
         return;
     }
 }

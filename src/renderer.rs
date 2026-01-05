@@ -13,7 +13,7 @@ use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::command::time::ObjTime;
 use encoding_rs::{Encoding, UTF_8};
 use itertools::Itertools;
-use rubato::{Fft, FixedSync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{Fft, FixedSync, Indexing, Resampler};
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CodecParameters, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
@@ -24,11 +24,9 @@ use vorbis_rs::VorbisEncoderBuilder;
 use crate::Args;
 
 struct AudioFile {
-    codec: CodecParameters,
     buffer: Vec<f32>,
-    length: f64,
     channels: usize,
-    sample_rate: u32
+    sample_rate: u32,
 }
 
 pub struct Renderer {
@@ -38,21 +36,21 @@ pub struct Renderer {
 
 #[derive(TError, Debug)]
 pub enum AudioIOError {
-    #[error("failed to get channel info from codec")]
-    MissingChannelInfo()
+    #[error("failed to get {0} from audio")]
+    MissingInfo(String),
 }
 
 #[derive(TError, Debug)]
 pub enum AudioGenError {
-    #[error("invalid bounds")]
-    InvalidBounds(String),
+    #[error("invalid bounds: {0}: [{1}..{2}] of len {3}")]
+    InvalidBounds(String, usize, usize, usize),
     #[error("unsupported number of channels for destination")]
     InvalidChannelCount(),
 }
 
-fn get_audio_fuzzy(path: PathBuf) -> io::Result<PathBuf> {
+fn get_audio_fuzzy(path: &PathBuf) -> io::Result<PathBuf> {
     if path.exists() {
-        return Ok(path);
+        return Ok(path.clone());
     }
 
     let valid_exts = ["wav", "ogg", "mp3"];
@@ -66,7 +64,7 @@ fn get_audio_fuzzy(path: PathBuf) -> io::Result<PathBuf> {
     Err(io::Error::new(io::ErrorKind::NotFound, "failed to find fuzzy file"))
 }
 
-fn get_wav_codec(fuzzy_path: PathBuf) -> Result<CodecParameters, Box<dyn Error>> {
+fn get_wav_codec(fuzzy_path: &PathBuf) -> Result<CodecParameters, Box<dyn Error>> {
     let path = get_audio_fuzzy(fuzzy_path)?;
 
     let file = Box::new(File::open(&path)?);
@@ -81,12 +79,11 @@ fn get_wav_codec(fuzzy_path: PathBuf) -> Result<CodecParameters, Box<dyn Error>>
 
     let format = probed.format;
     let track = format.default_track().unwrap();
-    let codec = track.codec_params.clone();
 
-    Ok(codec)
+    Ok(track.codec_params.clone())
 }
 
-fn read_wav(fuzzy_path: PathBuf) -> Result<AudioFile, Box<dyn Error>> {
+fn read_wav(fuzzy_path: &PathBuf) -> Result<AudioFile, Box<dyn Error>> {
     let path = get_audio_fuzzy(fuzzy_path)?;
 
     let file = Box::new(File::open(&path)?);
@@ -103,7 +100,8 @@ fn read_wav(fuzzy_path: PathBuf) -> Result<AudioFile, Box<dyn Error>> {
     let mut format = probed.format;
     let track = format.default_track().unwrap();
     let codec = track.codec_params.clone();
-    let channels = codec.channels.ok_or(AudioIOError::MissingChannelInfo())?.count();
+    // TODO: This would probably be better served with a separate error
+    let channels = codec.channels.ok_or(AudioIOError::MissingInfo("channel info".to_string()))?.count();
 
     let mut decoder =
         symphonia::default::get_codecs().make(&track.codec_params, &decoder_opts)?;
@@ -153,9 +151,8 @@ fn read_wav(fuzzy_path: PathBuf) -> Result<AudioFile, Box<dyn Error>> {
         output_buf.extend_from_slice(&output_buffers[i][..]);
     }
     
-    let sample_rate = codec.sample_rate.unwrap_or(48000);
-    let length = (output_buf.len() as f64) / (channels as f64) / (sample_rate as f64);
-    Ok(AudioFile { codec, buffer: output_buf, length, sample_rate, channels})
+    let sample_rate = codec.sample_rate.ok_or(AudioIOError::MissingInfo("sample rate".to_string()))?;
+    Ok(AudioFile { buffer: output_buf, sample_rate, channels})
 }
 
 fn resample_audio(src: &[f32], dst_sample_rate: u32, src_sample_rate: u32, src_channels: usize) -> Result<Vec<f32>, Box<dyn Error>> {
@@ -201,40 +198,63 @@ fn resample_audio(src: &[f32], dst_sample_rate: u32, src_sample_rate: u32, src_c
     Ok(resampled_data)
 }
 
-fn scale_audio() {
-    
+fn scale_audio(audio: &mut [f32], scale_by: f32) {
+    audio.iter_mut().for_each(|val| {
+        *val *= scale_by;
+    });
 }
 
-fn fade_audio_in() {
-    
+fn fade_audio_sch(audio: &mut [f32], sample_rate: u32, channel: usize, n_channels: usize, fade_length: f64, fade_end: bool){
+    let channel_size = audio.len() / n_channels;
+    let fade_n_samples = cmp::min((fade_length * sample_rate as f64) as usize, channel_size);
+
+    let base = if fade_end { channel_size - fade_n_samples - 1 } else { 0 } + channel * channel_size;
+    let end = if fade_end { channel_size } else { fade_n_samples } + channel * channel_size;
+
+    if fade_end {
+        audio[base..end].iter_mut().rev().enumerate().for_each(|(i, val)| {
+            *val *= i as f32 / fade_n_samples as f32;
+        });
+    } else {
+        audio[base..end].iter_mut().enumerate().for_each(|(i, val)| {
+            *val *= i as f32 / fade_n_samples as f32;
+        });
+    }
 }
 
-fn fade_audio_out() {
-    
+fn fade_audio(audio: &mut [f32], sample_rate: u32, n_channels: usize, fade_length: f64, fade_end: bool) {
+    for i in 0..n_channels {
+        fade_audio_sch(audio, sample_rate, i, n_channels, fade_length, fade_end);
+    }
 }
 
-fn add_audio_raw(dst: &mut [f32], src: &[f32], dst_ch: usize, src_ch: usize, dst_ch_max: usize, src_ch_max: usize, sample_offset: usize) -> Result<(), AudioGenError> {
+fn add_audio_sch(dst: &mut [f32], src: &[f32], dst_ch: usize, src_ch: usize, dst_ch_max: usize, src_ch_max: usize, dst_offset: usize, src_offset: usize) -> Result<(), AudioGenError> {
     let dst_channel_size: usize = dst.len() / dst_ch_max;
     let src_channel_size: usize = src.len() / src_ch_max;
     
-    let dst_base = sample_offset + dst_ch * dst_channel_size;
+    let dst_base = dst_offset + dst_ch * dst_channel_size;
     let dst_end = (dst_ch + 1) * dst_channel_size;
-    
-    let src_base = src_ch * src_channel_size;
+
+    let src_base = src_offset + src_ch * src_channel_size;
     let src_end = (src_ch + 1) * src_channel_size;
-    
+
+    if dst_offset > dst_channel_size {
+        return Err(AudioGenError::InvalidBounds("invalid sample offset".to_string(), src_base, src_end, src.len()));
+    }
+
     if dst_base > dst.len() || dst_end > dst.len() {
-        return Err(AudioGenError::InvalidBounds("invalid destination bounds".to_string()));
+        return Err(AudioGenError::InvalidBounds("invalid destination bounds".to_string(), src_base, src_end, src.len()));
     }
-    
-    if src_base > dst.len() || src_end > src.len() {
-        return Err(AudioGenError::InvalidBounds("invalid source bounds".to_string()));
+
+    if src_end < src_base || src_base > src.len() || src_end > src.len() {
+        return Err(AudioGenError::InvalidBounds("invalid source bounds".to_string(), src_base, src_end, src.len()));
     }
-    
-    for (dst_sample, src_sample) in dst[dst_base..dst_end].iter_mut().zip(&src[src_base..src_end]) {
+
+    dst[dst_base..dst_end].iter_mut().zip(&src[src_base..src_end]).for_each(
+        |(dst_sample, src_sample)| {
         *dst_sample += src_sample;
-    }
-    
+    });
+
     Ok(())
 }
 
@@ -244,15 +264,26 @@ fn add_audio(dst: &mut [f32], src: &[f32], sample_rate: u32,
         return Err(AudioGenError::InvalidChannelCount());
     }
     
-    let sample_offset = (offset_sec * sample_rate as f64) as usize;
-    add_audio_raw(dst, src, 0, 0, dst_channels, src_channels, sample_offset)?;
+    let mut dst_offset = (offset_sec * sample_rate as f64) as usize;
+    let mut src_offset = 0;
     
-    if dst_channels == 2 && src_channels >= 2 {
-        add_audio_raw(dst, src, 1, 1, dst_channels, src_channels, sample_offset)?;
-    } else if dst_channels == 2 && src_channels == 1 {
-        add_audio_raw(dst, src, 1, 0, dst_channels, src_channels, sample_offset)?;
+    if offset_sec < 0.0 {
+        dst_offset = 0;
+        src_offset = ((-offset_sec) * sample_rate as f64) as usize;
+        
+        if src_offset >= src.len() / src_channels {
+            return Ok(())
+        }
     }
     
+    add_audio_sch(dst, src, 0, 0, dst_channels, src_channels, dst_offset, src_offset)?;
+
+    if dst_channels == 2 && src_channels >= 2 {
+        add_audio_sch(dst, src, 1, 1, dst_channels, src_channels, dst_offset, src_offset)?;
+    } else if dst_channels == 2 && src_channels == 1 {
+        add_audio_sch(dst, src, 1, 0, dst_channels, src_channels, dst_offset, src_offset)?;
+    }
+
     Ok(())
 }
 
@@ -260,7 +291,7 @@ fn get_length_from_codec(codec: &CodecParameters) -> Option<f64> {
     let n_frames = codec.n_frames?;
     let channels = codec.channels?;
     let sample_rate = codec.sample_rate?;
-    
+
     Some(n_frames as f64 / channels.count() as f64 / sample_rate as f64)
 }
 
@@ -271,7 +302,7 @@ fn ceil_n(number: f64, ceiling: f64) -> f64 {
 
 impl Renderer {
     // referenced from https://github.com/approvers/bms-bounce/blob/master/bms-rs-wasm/src/lib.rs
-    fn get_wav_timings(&self) -> HashMap<PathBuf, Vec<f64>> {
+    fn get_wav_timings(&self, start: f64, end: f64) -> HashMap<PathBuf, Vec<f64>> {
         let bpm_changes = &self.bms.bpm.bpm_changes;
         let section_len_changes = &self.bms.section_len.section_len_changes;
 
@@ -317,7 +348,20 @@ impl Renderer {
                 current_bpm = first_bpm.clone().try_into().unwrap_or(current_bpm);
             }
 
+            if obj_start_seconds > end {
+                continue;
+            }
+
             let Some(name) = self.bms.wav.wav_files.get(&note.wav_id) else { continue };
+
+            if let Ok(codec) = get_wav_codec(name) {
+                let length = get_length_from_codec(&codec);
+
+                if length.is_some_and(|len| (obj_start_seconds + len) < start) {
+                    continue;
+                }
+            }
+
             let path = self.base_path.join(name);
             if let Some(timing_vec) = timings.get_mut(&path) {
                 timing_vec.push(obj_start_seconds);
@@ -330,74 +374,76 @@ impl Renderer {
     }
 
 
-    pub fn process_bms_file(&self, _args: &Args) -> Result<(), Box<dyn Error>> {
+    pub fn process_bms_file(&self, args: &Args) -> Result<(), Box<dyn Error>> {
         if let Some(_) = self.bms.music_info.preview_music {
             return Ok(())
         }
-
-        let timings = self.get_wav_timings();
-
-        // TODO: this can probably be rustified
-        let mut first_sample_rate = None;
-        let mut song_length = 0f64;
-        for (audio_path, offsets) in &timings {
-            let Ok(codec) = get_wav_codec(audio_path.clone()) else { continue };
-            let Some(length) = get_length_from_codec(&codec) else { continue };
-
-            for time in offsets {
-                song_length = song_length.max(time + length);
-            }
-            
-            if first_sample_rate == None {
-                first_sample_rate = codec.sample_rate;
-            }
-        }
         
-        const ENCODING_STEP_SIZE: usize = 512;
+        const ENCODING_STEP_SIZE: usize = 1024;
+
+        let channels = if args.mono_audio { 1 } else { 2 };
+        let song_length = args.end - args.start;
         
-        let sample_rate = first_sample_rate.unwrap_or(48000);
-        let channels = 2;
-        let req_samples = song_length * sample_rate as f64 * channels as f64;
+        let req_samples = song_length * args.sample_rate as f64 * channels as f64;
         let n_samples = ceil_n(req_samples, ENCODING_STEP_SIZE as f64 * channels as f64) as usize;
+        
         let mut render_buf = vec![0f32; n_samples];
+        
+        let timings = self.get_wav_timings(args.start, args.end);
 
-        for (wav_path, timings) in &timings {
-            println!("{}", wav_path.to_str().unwrap());
-            let Ok(wav) = read_wav(wav_path.clone()) else { continue };
-            let Ok(resampled) = resample_audio(&wav.buffer[..], sample_rate, wav.sample_rate, wav.channels) else { continue };
+        for (wav_path, timings) in timings {
+            let Ok(mut wav) = read_wav(&wav_path) else { continue };
+
+            if args.sample_rate != wav.sample_rate {
+                match resample_audio(&wav.buffer[..], args.sample_rate, wav.sample_rate, wav.channels) {
+                    Ok(resampled) => { wav.buffer = resampled },
+                    Err(_) => continue,
+                }
+                wav.sample_rate = args.sample_rate;
+            }
             
             for time in timings {
-                add_audio(&mut render_buf[..], &resampled[..], sample_rate, channels, wav.channels, *time)?;
+                add_audio(
+                    &mut render_buf[..],
+                    &wav.buffer[..],
+                    args.sample_rate,
+                    channels,
+                    wav.channels,
+                    time - args.start
+                )?;
             }
         }
 
-        // TODO: implement audio fading
-        fade_audio_in();
-        fade_audio_out();
+        fade_audio(&mut render_buf[..], args.sample_rate, channels, args.fade_in, false);
+        fade_audio(&mut render_buf[..], args.sample_rate, channels, args.fade_out, true);
+        
+        if args.volume != 1.0 {
+            scale_audio(&mut render_buf[..], args.volume);
+        }
 
         let mut output_buf = Vec::new();
         let mut encoder = VorbisEncoderBuilder::new(
-            NonZeroU32::new(sample_rate).unwrap(),
+            NonZeroU32::new(args.sample_rate).unwrap(),
             NonZeroU8::new(channels as u8).unwrap(),
             &mut output_buf
         )?.build()?;
-        
+
         let channel_size = n_samples / channels;
         let mut block: Vec<&[f32]> = vec![&[]; channels];
-        
+
         for i in (0..channel_size).step_by(ENCODING_STEP_SIZE){
             for j in 0..channels {
                 let base = i + j * channel_size;
                 let end = cmp::min(i + ENCODING_STEP_SIZE, channel_size) + j * channel_size;
-                
+
                 block[j] = &render_buf[base..end];
             }
-            
+
             encoder.encode_audio_block(&block)?;
         }
-        
+
         encoder.finish()?;
-        fs::write("preview.ogg", output_buf)?;
+        fs::write(self.base_path.join(&args.preview_file), output_buf)?;
 
         Ok(())
     }
