@@ -1,29 +1,18 @@
+use crate::bms_preview::Args;
 use crate::bms_preview::audio;
 use crate::bms_preview::errors::*;
-use crate::bms_preview::Args;
 
-use audioadapter_buffers::direct::SequentialSlice;
 use bms_rs::bms::model::Bms;
 use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::bms::{BmsOutput, Decimal, default_config, parse_bms};
 use bms_rs::command::time::ObjTime;
 use encoding_rs::{Encoding, UTF_8};
 use itertools::Itertools;
-use rubato::{Fft, FixedSync, Indexing, Resampler};
 use std::collections::HashMap;
-use std::error::Error;
-use std::fs::File;
 use std::num::{NonZeroU8, NonZeroU32, NonZeroU64};
 use std::ops::Mul;
 use std::path::PathBuf;
-use std::{cmp, fs, io};
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CodecParameters, DecoderOptions};
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use thiserror::Error;
+use std::{cmp, fs};
 use vorbis_rs::VorbisEncoderBuilder;
 
 pub struct Renderer {
@@ -220,17 +209,19 @@ impl Renderer {
 
     pub fn new(bms_path: PathBuf) -> Result<Self, RendererError> {
         let path_str = bms_path.to_string_lossy().to_string();
-        
+
         let file_bytes = fs::read(&bms_path)?;
         let encoding = Encoding::for_label(&file_bytes).unwrap_or(UTF_8);
 
         let (source, _, failed) = encoding.decode(&file_bytes);
         if failed {
-            return Err(RendererError::BMSDecodingError(path_str, encoding.name().to_string()));
+            return Err(RendererError::BMSDecodingError(
+                path_str,
+                encoding.name().to_string(),
+            ));
         }
 
-        let BmsOutput { bms, .. } =
-            parse_bms(&source, default_config())?;
+        let BmsOutput { bms, .. } = parse_bms(&source, default_config())?;
 
         Ok(Self {
             bms,

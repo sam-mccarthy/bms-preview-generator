@@ -1,28 +1,17 @@
 use crate::bms_preview::errors::AudioError;
 
 use audioadapter_buffers::direct::SequentialSlice;
-use bms_rs::bms::model::Bms;
-use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
-use bms_rs::bms::{BmsOutput, Decimal, default_config, parse_bms};
-use bms_rs::command::time::ObjTime;
-use encoding_rs::{Encoding, UTF_8};
 use itertools::Itertools;
 use rubato::{Fft, FixedSync, Indexing, Resampler};
-use std::collections::HashMap;
-use std::error::Error;
 use std::fs::File;
-use std::num::{NonZeroU8, NonZeroU32, NonZeroU64};
-use std::ops::Mul;
 use std::path::PathBuf;
-use std::{cmp, fs, io};
+use std::cmp;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CodecParameters, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use thiserror::Error;
-use vorbis_rs::VorbisEncoderBuilder;
 
 pub struct AudioFile {
     pub buffer: Vec<f32>,
@@ -273,14 +262,14 @@ fn add_audio_sch(
     if dst_offset > dst_channel_size {
         return Err(AudioError::InvalidSampleOffset(
             dst_offset,
-            dst_channel_size
+            dst_channel_size,
         ));
     }
-    
+
     if src_offset > src_channel_size {
         return Err(AudioError::InvalidSampleOffset(
             src_offset,
-            src_channel_size
+            src_channel_size,
         ));
     }
 
@@ -288,7 +277,7 @@ fn add_audio_sch(
         return Err(AudioError::InvalidDestinationBounds(
             src_base,
             src_end,
-            src.len()
+            src.len(),
         ));
     }
 
@@ -296,7 +285,7 @@ fn add_audio_sch(
         return Err(AudioError::InvalidSourceBounds(
             src_base,
             src_end,
-            src.len()
+            src.len(),
         ));
     }
 

@@ -1,9 +1,9 @@
 use audioadapter_buffers::SizeError;
 use bms_rs::bms::error::ParseErrorWithRange;
 use rubato::{ResampleError, ResamplerConstructionError};
+use std::io;
 use thiserror::Error;
 use vorbis_rs::VorbisError;
-use std::{io, path::PathBuf};
 
 #[derive(Error, Debug)]
 pub enum RendererError {
