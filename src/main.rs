@@ -1,48 +1,10 @@
-mod renderer;
+mod bms_preview;
 
-use crate::renderer::Renderer;
-use clap::Parser;
-use std::fs::metadata;
+use crate::bms_preview::*;
+
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, io};
-
-#[derive(Parser, Debug)]
-#[command(about, long_about = None)]
-struct Args {
-    /// The directory containing songs to process in a batch.
-    #[arg(short, long)]
-    songs_folder: String,
-
-    /// The starting time of the preview (seconds)
-    #[arg(long, default_value_t = 20.0)]
-    start: f64,
-
-    /// The ending time of the preview (seconds)
-    #[arg(long, default_value_t = 40.0)]
-    end: f64,
-
-    /// The duration to fade in the preview
-    #[arg(long, default_value_t = 2.0)]
-    fade_in: f64,
-
-    /// The duration to fade out the preview
-    #[arg(long, default_value_t = 2.0)]
-    fade_out: f64,
-
-    /// The filename of the preview file
-    #[arg(long, default_value = "preview_auto_generated.ogg")]
-    preview_file: String,
-
-    #[arg(long, default_value_t = false)]
-    mono_audio: bool,
-
-    #[arg(long, default_value_t = 48000)]
-    sample_rate: u32,
-
-    #[arg(long, default_value_t = 1.0)]
-    volume: f32,
-}
 
 fn get_bms_files(files: &mut Vec<PathBuf>, dir: &Path) -> io::Result<()> {
     let valid_extensions = ["bms", "bme", "bml", "pms", "bmson"];

@@ -5,10 +5,10 @@ edition = "2024"
 
 
 [dependencies]
-bms-rs = "0.10.1"
+bms-rs = { version = "0.10.1", features = ["bmson"] }
 clap = { version = "4.5.53", features = ["derive"] }
 encoding_rs = "0.8.35"
-symphonia = { version = "0.5.5", features = ["opt-simd-sse", "opt-simd-avx", "opt-simd-neon"]}
+symphonia = { version = "0.5.5", features = ["opt-simd"]}
 vorbis_rs = { version = "0.5.5", features = ["stream-serial-rng"] }
 rubato = "1.0.0"
 audioadapter-buffers = "2.0.0"
