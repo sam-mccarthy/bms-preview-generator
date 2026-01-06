@@ -25,6 +25,7 @@ fn get_bms_files(files: &mut Vec<PathBuf>, dir: &Path) -> io::Result<()> {
 
                 if valid_extensions.contains(&ext) {
                     files.push(path);
+                    break;
                 }
             }
         }
@@ -59,7 +60,5 @@ fn main() {
 
         let end = Instant::now();
         println!(" - took {:.2}s", (end - start).as_secs_f64());
-
-        return;
     }
 }
