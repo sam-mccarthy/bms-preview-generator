@@ -11,7 +11,7 @@ fn main() {
     
     match process_folder(&song_folder.to_path_buf(), &args) {
         Ok(_) => {
-            println!("finished processing folder")
+            println!("finished processing")
         },
         Err(e) => { 
             println!("failed: {}", e);

@@ -217,10 +217,10 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn new(bms_path: PathBuf) -> Result<Self, RendererError> {
+    pub fn new(bms_path: &PathBuf) -> Result<Self, RendererError> {
         let path_str = bms_path.to_string_lossy().to_string();
 
-        let file_bytes = fs::read(&bms_path)?;
+        let file_bytes = fs::read(bms_path)?;
         let encoding = Encoding::for_label(&file_bytes).unwrap_or(UTF_8);
 
         let (source, _, failed) = encoding.decode(&file_bytes);

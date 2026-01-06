@@ -1,4 +1,5 @@
 pub mod renderer;
+use rayon::iter::IntoParallelRefIterator;
 pub use renderer::Renderer;
 
 mod errors;
@@ -9,6 +10,7 @@ use errors::ProcessError;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, io};
+use rayon::prelude::*;
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None)]
@@ -84,12 +86,11 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
     let mut bms_files = Vec::new();
     get_bms_files(&mut bms_files, song_folder).expect("failed to get BMS files");
     
-    for file in bms_files {
-        print!("processing {}", file.to_str().unwrap());
+    bms_files.par_iter().for_each(|file| {
         let start = Instant::now();
 
-        let Ok(render) = Renderer::new(file) else {
-            continue;
+        let Ok(render) = Renderer::new(&file) else {
+            return;
         };
 
         if let Err(e) = render.process_bms_file(&args) {
@@ -97,8 +98,8 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
         }
 
         let end = Instant::now();
-        println!(" - took {:.2}s", (end - start).as_secs_f64());
-    }
+        println!("processed {} in {:.2}s", file.to_str().unwrap(), (end - start).as_secs_f64());
+    });
     
     Ok(())
 }
