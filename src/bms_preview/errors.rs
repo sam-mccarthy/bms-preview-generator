@@ -25,11 +25,11 @@ pub enum RendererError {
 pub enum AudioError {
     #[error("failed to find audio file: {0}")]
     FileNotFound(String),
-    #[error("invalid bounds: {0} with channel size {1}")]
+    #[error("invalid sample offset: {0} with channel size {1}")]
     InvalidSampleOffset(usize, usize),
-    #[error("invalid bounds: [{0}..{1}] of len {2}")]
+    #[error("invalid dst bounds: [{0}..{1}] of len {2}")]
     InvalidDestinationBounds(usize, usize, usize),
-    #[error("invalid bounds: [{0}..{1}] of len {2}")]
+    #[error("invalid src bounds: [{0}..{1}] of len {2}")]
     InvalidSourceBounds(usize, usize, usize),
     #[error("unsupported number of channels for destination")]
     InvalidChannelCount(),

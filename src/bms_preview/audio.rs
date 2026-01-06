@@ -1,7 +1,9 @@
+use crate::bms_preview::Args;
 use crate::bms_preview::errors::AudioError;
 
 use audioadapter_buffers::direct::SequentialSlice;
-use rubato::{Fft, FixedSync, Indexing, Resampler};
+use rubato::{Fft, FixedSync, Resampler};
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::cmp;
@@ -11,6 +13,8 @@ use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
+use std::num::{NonZeroU8, NonZeroU32};
+use vorbis_rs::VorbisEncoderBuilder;
 
 pub struct AudioFile {
     pub buffer: Vec<f32>,
@@ -151,39 +155,20 @@ pub fn resample_audio(
     // wrap it with an InterleavedSlice Adapter
     let nbr_input_frames = src.len() / src_channels;
     let input_adapter = SequentialSlice::new(&src, src_channels, nbr_input_frames)?;
-
+    
     // create a buffer for the output
     let mut resampled_data = vec![0.0; src.len() * 2];
     let resample_capacity = resampled_data.len() / src_channels;
-    let mut output_adapter =
-        SequentialSlice::new_mut(&mut resampled_data, src_channels, resample_capacity)?;
-
-    let mut indexing = Indexing {
-        input_offset: 0,
-        output_offset: 0,
-        active_channels_mask: None,
-        partial_len: None,
-    };
-
-    let mut input_frames_left = nbr_input_frames;
-    let mut input_frames_next = resampler.input_frames_next();
-
-    while input_frames_left >= input_frames_next {
-        let (frames_read, frames_written) =
-            resampler.process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing))?;
-
-        indexing.input_offset += frames_read;
-        indexing.output_offset += frames_written;
-        input_frames_left -= frames_read;
-        input_frames_next = resampler.input_frames_next();
-    }
-
+    let mut output_adapter = SequentialSlice::new_mut(&mut resampled_data, src_channels, resample_capacity)?;
+    
+    resampler.process_all_into_buffer(&input_adapter, &mut output_adapter, nbr_input_frames, None)?;
+    
     Ok(resampled_data)
 }
 
-pub fn scale_audio(audio: &mut [f32], scale_by: f32) {
+pub fn scale_audio(audio: &mut [f32], scale_by_percent: f32) {
     audio.iter_mut().for_each(|val| {
-        *val *= scale_by;
+        *val *= scale_by_percent / 100.0;
     });
 }
 
@@ -258,18 +243,12 @@ fn add_audio_sch(
     let src_base = src_offset + src_ch * src_channel_size;
     let src_end = (src_ch + 1) * src_channel_size;
 
-    if dst_offset > dst_channel_size {
-        return Err(AudioError::InvalidSampleOffset(
-            dst_offset,
-            dst_channel_size,
-        ));
+    if dst_offset >= dst_channel_size {
+        return Ok(());
     }
 
-    if src_offset > src_channel_size {
-        return Err(AudioError::InvalidSampleOffset(
-            src_offset,
-            src_channel_size,
-        ));
+    if src_offset >= src_channel_size {
+        return Ok(());
     }
 
     if dst_base > dst.len() || dst_end > dst.len() {
@@ -371,6 +350,96 @@ pub fn add_audio(
     }
 
     Ok(())
+}
+
+pub fn encode_vorbis(raw_buffer: &[f32], channels: usize, sample_rate: u32, encoding_step_size: usize ) -> Result<Vec<u8>, AudioError> {
+    let mut output_buf = Vec::new();
+    let mut encoder = VorbisEncoderBuilder::new(
+        NonZeroU32::new(sample_rate).unwrap(),
+        NonZeroU8::new(channels as u8).unwrap(),
+        &mut output_buf,
+    )?
+    .build()?;
+
+    let channel_size = raw_buffer.len() / channels;
+    let mut block: Vec<&[f32]> = vec![&[]; channels];
+
+    for i in (0..channel_size).step_by(encoding_step_size) {
+        for j in 0..channels {
+            let base = i + j * channel_size;
+            let end = cmp::min(i + encoding_step_size, channel_size) + j * channel_size;
+            
+            if end - base < encoding_step_size {
+                encoder.finish()?;
+                return Ok(output_buf)
+            }
+
+            block[j] = &raw_buffer[base..end];
+        }
+
+        encoder.encode_audio_block(&block)?;
+    }
+    
+    encoder.finish()?;
+    Ok(output_buf)
+}
+
+fn ceil_n(number: f64, ceiling: f64) -> f64 {
+    let remainder = number % ceiling;
+    number + ceiling - remainder
+}
+
+pub fn render_audios(timings: HashMap<PathBuf, Vec<f64>>, args: &Args, start: f64, end: f64) -> Result<AudioFile, AudioError> {
+    let channels = if args.mono_audio { 1 } else { 2 };
+
+    let mut sample_rate = 0;
+    let mut render_buf = vec![];
+
+    for (wav_path, timings) in timings {
+        let Ok(mut wav) = read_wav(&wav_path) else {
+            continue;
+        };
+        
+        if sample_rate == 0 {
+            sample_rate = if args.sample_rate == 0 { 
+                wav.sample_rate 
+            } else { 
+                args.sample_rate 
+            };
+            
+            let req_samples = (end - start) * sample_rate as f64 * channels as f64;
+            let n_samples = ceil_n(req_samples, args.encoding_step_size as f64 * channels as f64) as usize;
+    
+            render_buf.resize(n_samples, 0.0);
+        }
+
+        if sample_rate != wav.sample_rate {
+            match resample_audio(
+                &wav.buffer[..],
+                sample_rate,
+                wav.sample_rate,
+                wav.channels,
+            ) {
+                Ok(resampled) => wav.buffer = resampled,
+                Err(_) => continue,
+            }
+            wav.sample_rate = sample_rate;
+        }
+
+        for time in timings {
+            add_audio(
+                &mut render_buf[..],
+                &wav.buffer[..],
+                sample_rate,
+                channels,
+                wav.channels,
+                time - start,
+                args.lazy_mono,
+            )?;
+        }
+    }
+    
+    Ok(AudioFile { buffer: render_buf, channels, sample_rate })
 }
 
 pub fn get_length_from_codec(codec: &CodecParameters) -> Option<f64> {

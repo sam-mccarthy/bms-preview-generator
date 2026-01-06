@@ -9,25 +9,36 @@ use bms_rs::command::time::ObjTime;
 use encoding_rs::{Encoding, UTF_8};
 use itertools::Itertools;
 use std::collections::HashMap;
-use std::num::{NonZeroU8, NonZeroU32, NonZeroU64};
+use std::num::{NonZeroU64};
 use std::ops::Mul;
 use std::path::PathBuf;
-use std::{cmp, fs};
-use vorbis_rs::VorbisEncoderBuilder;
+use std::{fs};
 
 pub struct Renderer {
     bms: Bms,
     base_path: PathBuf,
 }
 
-fn ceil_n(number: f64, ceiling: f64) -> f64 {
-    let remainder = number % ceiling;
-    number + ceiling - remainder
+fn get_song_length(timings: &HashMap<PathBuf, Vec<f64>>) -> f64 {
+    let mut song_length = 0.0;
+    timings.iter().for_each(|(path, timings)| {
+        let Ok(codec) = audio::get_wav_codec(path) else { return };
+        let Some(length) = audio::get_length_from_codec(&codec) else { return };
+        
+        timings.iter().for_each(|time| {
+            let sound_end = time + length;
+            if song_length < sound_end {
+                song_length = sound_end;
+            }
+        })
+    });
+    
+    song_length
 }
 
 impl Renderer {
     // referenced from https://github.com/approvers/bms-bounce/blob/master/bms-rs-wasm/src/lib.rs
-    fn get_wav_timings(&self, start: f64, end: f64) -> HashMap<PathBuf, Vec<f64>> {
+    fn get_wav_timings(&self) -> HashMap<PathBuf, Vec<f64>> {
         let bpm_changes = &self.bms.bpm.bpm_changes;
         let section_len_changes = &self.bms.section_len.section_len_changes;
 
@@ -86,21 +97,9 @@ impl Renderer {
                 current_bpm = first_bpm.clone().try_into().unwrap_or(current_bpm);
             }
 
-            if obj_start_seconds > end {
-                continue;
-            }
-
             let Some(name) = self.bms.wav.wav_files.get(&note.wav_id) else {
                 continue;
             };
-
-            if let Ok(codec) = audio::get_wav_codec(&self.base_path.join(name)) {
-                let length = audio::get_length_from_codec(&codec);
-
-                if length.is_some_and(|len| (obj_start_seconds + len) < start) {
-                    continue;
-                }
-            }
 
             let path = self.base_path.join(name);
             if let Some(timing_vec) = timings.get_mut(&path) {
@@ -114,105 +113,53 @@ impl Renderer {
     }
 
     pub fn process_bms_file(&self, args: &Args) -> Result<(), AudioError> {
+        let preview_path = self.base_path.join(&args.preview_file);
         if let Some(_) = self.bms.music_info.preview_music {
             return Ok(());
         }
-
-        const ENCODING_STEP_SIZE: usize = 1024;
         
-        let channels = if args.mono_audio { 1 } else { 2 };
-        let snip_length = args.end - args.start;
-
-        let mut sample_rate = 0;
-        let mut render_buf = vec![];
-        let timings = self.get_wav_timings(args.start, args.end);
-
-        for (wav_path, timings) in timings {
-            let Ok(mut wav) = audio::read_wav(&wav_path) else {
-                continue;
-            };
-            
-            if sample_rate == 0 {
-                sample_rate = if args.sample_rate == 0 { 
-                    wav.sample_rate 
-                } else { 
-                    args.sample_rate 
-                };
-                
-                let req_samples = snip_length * sample_rate as f64 * channels as f64;
-                let n_samples = ceil_n(req_samples, ENCODING_STEP_SIZE as f64 * channels as f64) as usize;
-        
-                render_buf.resize(n_samples, 0.0);
-            }
-
-            if sample_rate != wav.sample_rate {
-                match audio::resample_audio(
-                    &wav.buffer[..],
-                    sample_rate,
-                    wav.sample_rate,
-                    wav.channels,
-                ) {
-                    Ok(resampled) => wav.buffer = resampled,
-                    Err(_) => continue,
-                }
-                wav.sample_rate = sample_rate;
-            }
-
-            for time in timings {
-                audio::add_audio(
-                    &mut render_buf[..],
-                    &wav.buffer[..],
-                    sample_rate,
-                    channels,
-                    wav.channels,
-                    time - args.start,
-                )?;
-            }
+        if !args.overwrite && preview_path.exists() {
+            return Ok(());
         }
+        
+        if args.start > args.end || args.start_p > args.end_p {
+            return Ok(());
+        }
+        
+        let timings = self.get_wav_timings();
+        let mut start = args.start;
+        let mut end = args.end;
+        
+        if args.start_p != 0.0 || args.end_p != 0.0 {
+            let song_length = get_song_length(&timings);
+            
+            start = (args.start_p / 100.0) * song_length;
+            end = (args.end_p / 100.0) * song_length;
+        }
+        
+        let mut render = audio::render_audios(timings, args, start, end)?;
 
         audio::fade_audio(
-            &mut render_buf[..],
-            sample_rate,
-            channels,
+            &mut render.buffer[..],
+            render.sample_rate,
+            render.channels,
             args.fade_in,
             false,
         );
         audio::fade_audio(
-            &mut render_buf[..],
-            sample_rate,
-            channels,
+            &mut render.buffer[..],
+            render.sample_rate,
+            render.channels,
             args.fade_out,
             true,
         );
 
-        if args.volume != 1.0 {
-            audio::scale_audio(&mut render_buf[..], args.volume);
+        if args.volume != 100.0 {
+            audio::scale_audio(&mut render.buffer[..], args.volume);
         }
-
-        let mut output_buf = Vec::new();
-        let mut encoder = VorbisEncoderBuilder::new(
-            NonZeroU32::new(sample_rate).unwrap(),
-            NonZeroU8::new(channels as u8).unwrap(),
-            &mut output_buf,
-        )?
-        .build()?;
-
-        let channel_size = render_buf.len() / channels;
-        let mut block: Vec<&[f32]> = vec![&[]; channels];
-
-        for i in (0..channel_size).step_by(ENCODING_STEP_SIZE) {
-            for j in 0..channels {
-                let base = i + j * channel_size;
-                let end = cmp::min(i + ENCODING_STEP_SIZE, channel_size) + j * channel_size;
-
-                block[j] = &render_buf[base..end];
-            }
-
-            encoder.encode_audio_block(&block)?;
-        }
-
-        encoder.finish()?;
-        fs::write(self.base_path.join(&args.preview_file), output_buf)?;
+        
+        let output_buf = audio::encode_vorbis(&render.buffer[..], render.channels, render.sample_rate, args.encoding_step_size)?;
+        fs::write(preview_path, output_buf)?;
 
         Ok(())
     }
