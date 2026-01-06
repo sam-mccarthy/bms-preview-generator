@@ -6,6 +6,12 @@ use thiserror::Error;
 use vorbis_rs::VorbisError;
 
 #[derive(Error, Debug)]
+pub enum ProcessError {
+    #[error("songs folder is invalid")]
+    InvalidSongsFolder()
+}
+
+#[derive(Error, Debug)]
 pub enum RendererError {
     #[error("failed to decode .bms file ({0}) with {1} format")]
     BMSDecodingError(String, String),
