@@ -305,6 +305,7 @@ pub fn add_audio(
     dst_channels: usize,
     src_channels: usize,
     offset_sec: f64,
+    lazy_mono: bool,
 ) -> Result<(), AudioError> {
     if dst_channels == 0 || dst_channels > 2 || src_channels == 0 {
         return Err(AudioError::InvalidChannelCount());
@@ -333,7 +334,19 @@ pub fn add_audio(
         src_offset,
     )?;
 
-    if dst_channels == 2 && src_channels >= 2 {
+    if dst_channels == 1 && src_channels >= 2 && !lazy_mono {
+        add_audio_sch(
+            dst,
+            src,
+            0,
+            1,
+            dst_channels,
+            src_channels,
+            dst_offset,
+            src_offset,
+        )?;
+        scale_audio(dst, 0.5);
+    } else if dst_channels == 2 && src_channels >= 2 {
         add_audio_sch(
             dst,
             src,

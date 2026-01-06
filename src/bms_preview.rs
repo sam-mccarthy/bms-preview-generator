@@ -1,16 +1,10 @@
 pub mod renderer;
-use rayon::iter::IntoParallelRefIterator;
 pub use renderer::Renderer;
 
 mod errors;
 mod audio;
 
 pub use clap::Parser;
-use errors::ProcessError;
-use std::path::{Path, PathBuf};
-use std::time::Instant;
-use std::{fs, io};
-use rayon::prelude::*;
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None)]
@@ -38,17 +32,29 @@ pub struct Args {
     /// The filename of the preview file
     #[arg(long, default_value = "preview_auto_generated.ogg")]
     pub preview_file: String,
-
-    #[arg(long, default_value_t = false)]
+    
+    // Render mono instead of stereo preview audio
+    #[arg(long, default_value_t = true)]
     pub mono_audio: bool,
+    
+    // Render mono using only the left audio channel instead of averaging stereo
+    #[arg(long, default_value_t = false)]
+    pub lazy_mono: bool,
     
     // The sample rate of the preview file. If zero, will default to the sample rate used by the song
     #[arg(long, default_value_t = 0)]
     pub sample_rate: u32,
 
+    // Scale volume (decimal scale, i.e. 0.5 = 50%)
     #[arg(long, default_value_t = 1.0)]
     pub volume: f32,
 }
+
+use errors::ProcessError;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+use std::{fs, io};
+use rayon::prelude::*;
 
 fn get_bms_files(files: &mut Vec<PathBuf>, dir: &Path) -> io::Result<()> {
     let valid_extensions = ["bms", "bme", "bml", "pms", "bmson"];
