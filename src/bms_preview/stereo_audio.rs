@@ -34,7 +34,7 @@ fn get_audio_fuzzy(path: impl AsRef<Path>) -> Option<PathBuf> {
     }
 
     const VALID_AUDIO: [&str; 3] = ["wav", "ogg", "mp3"];
-    
+
     // Find the first path with an alternate extension that exists
     VALID_AUDIO.iter().find_map(|extension| {
         let alternate_path = path_ref.with_extension(extension);
@@ -67,11 +67,11 @@ impl Probe {
     /// This function uses fuzzy path matching to match alternative audio extensions.
     pub fn new(fuzzy_path: impl AsRef<Path>) -> Result<Probe, AudioError> {
         let path = get_audio_fuzzy(fuzzy_path).ok_or(AudioError::FileNotFound())?;
-        
+
         // Open file and setup stream
         let file = Box::new(File::open(&path)?);
         let mss = MediaSourceStream::new(file, Default::default());
-        
+
         // Hint using file extension
         let mut hint = &mut Hint::new();
         if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
@@ -80,11 +80,11 @@ impl Probe {
 
         let format_opts: FormatOptions = Default::default();
         let metadata_opts: MetadataOptions = Default::default();
-        
+
         // Probe audio information
         let probed =
             symphonia::default::get_probe().format(&hint, mss, &format_opts, &metadata_opts)?;
-        
+
         let format = probed.format;
         let track = format.default_track().unwrap();
 
@@ -93,7 +93,7 @@ impl Probe {
             format,
         })
     }
-    
+
     /// Get the length of an audio file.
     pub fn get_length(&self) -> Option<f64> {
         let codec = &self.track.codec_params;
@@ -149,11 +149,11 @@ impl StereoAudio {
             sample_rate: sample_rate,
         }
     }
-    
+
     /// Load stereo audio from probed data.
     pub fn load(mut probe: Probe) -> Result<Self, AudioError> {
         let decoder_opts: DecoderOptions = Default::default();
-        
+
         // Get vital codec information
         let channels = probe
             .track
@@ -166,7 +166,7 @@ impl StereoAudio {
             .codec_params
             .sample_rate
             .ok_or(AudioError::MissingCodecInfo())?;
-        
+
         // Setup decoder
         let mut decoder =
             symphonia::default::get_codecs().make(&probe.track.codec_params, &decoder_opts)?;
@@ -182,14 +182,14 @@ impl StereoAudio {
                 Ok(p) => p,
                 Err(_) => break,
             };
-            
+
             // In theory, the default track should be all that matters.
             // I'm not sure if there's an edge case here. I'm inclined to assume
             // BMS also only cares about default tracks, though.
             if packet.track_id() != track_id {
                 continue;
             }
-            
+
             // Decode the packet and add it to the buffer.
             match decoder.decode(&packet) {
                 Ok(audio_buf) => {
@@ -200,13 +200,13 @@ impl StereoAudio {
 
                         buffer = Some(SampleBuffer::<f32>::new(duration, spec));
                     }
-                    
+
                     // It definitely exists at this point, so we copy the data into the buffer.
                     if let Some(buf) = &mut buffer {
                         buf.copy_interleaved_ref(audio_buf);
                         let samples = buf.samples();
                         let count = samples.len();
-                        
+
                         // Reserve vector space to avoid too many allocations.
                         output.reserve(count);
                         for i in (0..count).step_by(channels) {
@@ -237,13 +237,13 @@ impl StereoAudio {
             sample_rate,
         })
     }
-    
+
     /// Resample the audio buffer to a desired sample rate.
     pub fn resample(&mut self, desired_rate: usize) -> Result<(), AudioError> {
         if self.sample_rate == desired_rate as u32 {
-            return Ok(())
+            return Ok(());
         }
-        
+
         // Setup resampler.
         let mut resampler = Fft::<f32>::new(
             self.sample_rate as usize,
@@ -253,24 +253,24 @@ impl StereoAudio {
             STEREO_CHANNELS,
             FixedSync::Input,
         )?;
-        
+
         // Collect the two channels into separate vectors put into a slice.
         let left_in = self.buffer.iter().map(|sample| sample.left).collect();
         let right_in = self.buffer.iter().map(|sample| sample.right).collect();
         let input = &[left_in, right_in];
-        
+
         // Create the adapter for resampling.
         let n_input_frames = self.samples_per_channel();
         let input_adapter = SequentialSliceOfVecs::new(input, STEREO_CHANNELS, n_input_frames)?;
-        
+
         // Find out the required capacity for the output vectors
         let resample_capacity = resampler.process_all_needed_output_len(n_input_frames);
-        
+
         // Setup the output slice of vecs and create another adapter
         let output = &mut [vec![0.0; resample_capacity], vec![0.0; resample_capacity]];
         let mut output_adapter =
             SequentialSliceOfVecs::new_mut(output, STEREO_CHANNELS, resample_capacity)?;
-        
+
         // Resample.
         resampler.process_all_into_buffer(
             &input_adapter,
@@ -278,7 +278,7 @@ impl StereoAudio {
             n_input_frames,
             None,
         )?;
-        
+
         // Collect the resampled data back into our buffer.
         let left_out = &output[0];
         let right_out = &output[1];
@@ -299,7 +299,7 @@ impl StereoAudio {
         // Get the length in samples of fades.
         let in_samples = self.time_to_samples(fade_in_time);
         let out_samples = self.time_to_samples(fade_out_time);
-        
+
         // Iterate over the first in_samples samples and attenuate them linearly.
         self.buffer
             .iter_mut()
@@ -308,7 +308,7 @@ impl StereoAudio {
                 let ratio = i as f32 / in_samples as f32;
                 *sample *= ratio;
             });
-        
+
         // Iterate over the last out_samples samples in reverse (since the index is still ascending).
         self.buffer
             .iter_mut()
@@ -325,14 +325,14 @@ impl StereoAudio {
         if self.sample_rate != rhs.sample_rate {
             return Err(AudioError::MismatchedSampleRate());
         }
-        
+
         // Get the offset in samples of the audio to add, with respect to Self.
         // Negative offset will cut off the start of the added audio.
         let raw_offset = self.time_to_samples(offset);
-        
+
         let mut dst_offset = raw_offset.abs() as usize;
         let mut src_offset = dst_offset;
-        
+
         // If the raw offset is positive, then we want destination offset equal to raw offset
         // and source offset to be set to zero. If it's negative, then we want destination offset at 0
         // and we want the source offset to cut off the beginning of the source audio.
@@ -343,7 +343,7 @@ impl StereoAudio {
         } else {
             return Ok(());
         }
-        
+
         // Iterate over the two zipped slices and add samples accordingly.
         self.buffer[dst_offset..]
             .iter_mut()
@@ -354,13 +354,13 @@ impl StereoAudio {
 
         Ok(())
     }
-    
+
     pub fn attenuate(&mut self, volume: f32) {
         // No need to do work if volume is 1.
         if volume == 1.0 {
             return;
         }
-        
+
         // Multiple every sample by the volume.
         self.buffer.iter_mut().for_each(|sample| {
             *sample *= volume;
@@ -378,11 +378,11 @@ impl StereoAudio {
             file,
         )?
         .build()?;
-        
+
         // The audio buffer is not guaranteed to be divisible by the chunk size, which is
         // required by the encoder. This is the remainder needed for padding.
         let missing_samples = self.buffer.len() % ENCODING_CHUNK_SIZE;
-        
+
         // Pad both iterators with zeroes to meet the chunk size.
         let mut left = self
             .buffer
@@ -394,7 +394,7 @@ impl StereoAudio {
             .iter()
             .map(|sample| sample.right)
             .chain((0..missing_samples).map(|_| Default::default()));
-        
+
         // Iterate over the length of the buffer. The iterators are padded with an amount less than the chunk size,
         // so iterating to self.buffer.len() isn't an issue here.
         for _ in (0..self.buffer.len()).step_by(ENCODING_CHUNK_SIZE) {
@@ -405,7 +405,7 @@ impl StereoAudio {
             let Some(right_chunk): Option<[f32; ENCODING_CHUNK_SIZE]> = right.next_array() else {
                 continue;
             };
-            
+
             // If we're in stereo, we can just encode the two chunks normally in a block.
             if !mono {
                 let block = &[left_chunk, right_chunk];
@@ -427,7 +427,7 @@ impl StereoAudio {
 
         Ok(())
     }
-    
+
     /// Match the sample rate of the passed audio via resampling.
     pub fn match_sample_rate(&mut self, rhs: &StereoAudio) -> Result<(), AudioError> {
         if self.sample_rate != rhs.sample_rate {
@@ -436,24 +436,24 @@ impl StereoAudio {
 
         Ok(())
     }
-    
+
     /// Get the length of the audio.
     #[allow(dead_code)]
     pub fn get_length(&self) -> f64 {
         self.samples_to_time(self.buffer.len() as isize)
     }
-    
+
     /// Convert a number of samples into time based on sample rate.
     #[allow(dead_code)]
     fn samples_to_time(&self, samples: isize) -> f64 {
         return samples as f64 / self.sample_rate as f64;
     }
-    
+
     /// Convert an amount of time into samples.
     fn time_to_samples(&self, time: f64) -> isize {
         return (time * self.sample_rate as f64) as isize;
     }
-    
+
     /// Get the number of samples per channel.
     fn samples_per_channel(&self) -> usize {
         return self.buffer.len();
