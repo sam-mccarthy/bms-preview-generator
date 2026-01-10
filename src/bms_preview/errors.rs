@@ -1,5 +1,5 @@
 use audioadapter_buffers::SizeError;
-use bms_rs::bms::error::ParseErrorWithRange;
+use bms_rs::bms::{parse::ParseError, prelude::SourceRangeMixin};
 use rubato::{ResampleError, ResamplerConstructionError};
 use std::io;
 use thiserror::Error;
@@ -20,7 +20,7 @@ pub enum RendererError {
     #[error("failed to decode .bms file ({0}) with {1} format")]
     BMSDecodingError(String, String),
     #[error("failed to parse .bms file: {0}")]
-    BMSParsingError(#[from] ParseErrorWithRange),
+    BMSParsingError(#[from] SourceRangeMixin<ParseError>),
     #[error("failed to read .bms file: {0}")]
     FileNotFound(#[from] io::Error),
 }

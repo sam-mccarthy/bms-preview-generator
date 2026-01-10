@@ -4,9 +4,9 @@ use crate::bms_preview::stereo_audio::Probe;
 use crate::bms_preview::stereo_audio::StereoAudio;
 
 use bms_rs::bms::model::Bms;
+use bms_rs::bms::prelude::ObjTime;
 use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::bms::{BmsOutput, Decimal, default_config, parse_bms};
-use bms_rs::command::time::ObjTime;
 use encoding_rs::{Encoding, UTF_8};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -41,9 +41,8 @@ impl Renderer {
         let mut current_section_time = 0.0;
         let mut next_section_time = 0.0;
         let mut previous_section = 0;
-
-        let four = NonZeroU64::new(4).unwrap();
-        let first_bpm_change = bpm_changes.range(..ObjTime::new(2, 0, four)).next();
+        
+        let first_bpm_change = bpm_changes.range(..ObjTime::new(2, 0, 4).unwrap()).next();
         if let Some((_, BpmChangeObj { bpm: first_bpm, .. })) = first_bpm_change {
             current_bpm = first_bpm.clone().try_into().unwrap_or(DEFAULT_BPM);
         }
@@ -219,7 +218,8 @@ impl Renderer {
             ));
         }
         
-        let BmsOutput { bms, .. } = parse_bms(&source, default_config())?;
+        // Parse the BMS file. We should handle warnings here eventually - maybe a verbosity flag? TODO.
+        let bms = parse_bms(&source, default_config()).bms?;
 
         Ok(Self {
             bms,
