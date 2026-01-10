@@ -207,6 +207,7 @@ impl Renderer {
         let path_str = path_ref.to_string_lossy().to_string();
 
         // Read the BMS file and find its encoding.
+        // Default as SHIFT_JIS seems to work best. UTF-8 default breaks significantly.
         let file_bytes = fs::read(path_ref)?;
         let encoding = Encoding::for_label(&file_bytes[..]).unwrap_or(SHIFT_JIS);
 
