@@ -7,7 +7,7 @@ use bms_rs::bms::model::Bms;
 use bms_rs::bms::prelude::ObjTime;
 use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::bms::{Decimal, default_config, parse_bms};
-use encoding_rs::{Encoding, UTF_8};
+use encoding_rs::{Encoding, SHIFT_JIS};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fs;
@@ -159,7 +159,7 @@ impl Renderer {
         }
 
         // Create a new stereo buffer for our preview.
-        let mut render = StereoAudio::new(end - start, sample_rate.unwrap());
+        let mut render = StereoAudio::new(end - start, sample_rate.unwrap_or(48000));
         // Iterate over all of the probes and play their timings.
         probes.into_iter().for_each(|probe_time| {
             let (probe, timings) = probe_time;
@@ -208,7 +208,7 @@ impl Renderer {
 
         // Read the BMS file and find its encoding.
         let file_bytes = fs::read(path_ref)?;
-        let encoding = Encoding::for_label(&file_bytes).unwrap_or(UTF_8);
+        let encoding = Encoding::for_label(&file_bytes[..]).unwrap_or(SHIFT_JIS);
 
         // Decode the file with the proper encoding.
         let (source, _, failed) = encoding.decode(&file_bytes);
