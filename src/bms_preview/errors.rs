@@ -9,9 +9,9 @@ use vorbis_rs::VorbisError;
 pub enum ProcessError {
     #[error("songs folder is invalid")]
     InvalidSongsFolder(),
-    #[error("failed to get songs")]
+    #[error("failed to get songs: {0}")]
     FailedSongIO(#[from] io::Error),
-    #[error("renderer failed")]
+    #[error("renderer failed: {0}")]
     RendererFailed(#[from] RendererError),
 }
 

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::num::NonZeroU64;
 use std::ops::Mul;
+use std::path::Path;
 use std::path::PathBuf;
 
 pub struct Renderer {
@@ -200,11 +201,13 @@ impl Renderer {
     }
     
     /// Create a new renderer, parsing the BMS file.
-    pub fn new(bms_path: &PathBuf) -> Result<Self, RendererError> {
-        let path_str = bms_path.to_string_lossy().to_string();
+    pub fn new(bms_path: impl AsRef<Path>) -> Result<Self, RendererError> {
+        // Convert the AsRef into an actual path, and get its string for potential error
+        let path_ref = bms_path.as_ref();
+        let path_str = path_ref.to_string_lossy().to_string();
         
         // Read the BMS file and find its encoding.
-        let file_bytes = fs::read(bms_path)?;
+        let file_bytes = fs::read(path_ref)?;
         let encoding = Encoding::for_label(&file_bytes).unwrap_or(UTF_8);
         
         // Decode the file with the proper encoding.
@@ -220,7 +223,7 @@ impl Renderer {
 
         Ok(Self {
             bms,
-            base_path: bms_path.parent().unwrap().to_path_buf(),
+            base_path: path_ref.parent().unwrap().to_path_buf(),
         })
     }
 }

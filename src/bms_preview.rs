@@ -60,76 +60,59 @@ pub struct Args {
 
 use errors::ProcessError;
 use rayon::prelude::*;
-use std::path::{Path, PathBuf};
+use walkdir::{DirEntry, WalkDir};
+use std::path::PathBuf;
 use std::time::Instant;
-use std::{fs, io};
-
-/// Get all files with a valid BMS extension recursively in a folder.
-fn get_bms_files(files: &mut Vec<PathBuf>, dir: &Path) -> io::Result<()> {
-    // The set of valid song extensions.
-    let valid_extensions = ["bms", "bme", "bml", "pms", "bmson"];
-    
-    if dir.is_dir() {
-        // Read all items in the folder and recurse through directories while adding
-        // valid files to the vector.
-        
-        let items = fs::read_dir(dir)?;
-        for item in items {
-            let path = item?.path();
-            
-            if path.is_dir() {
-                get_bms_files(files, &dir)?;
-            } else {
-                let Some(ext_osstr) = path.extension() else {
-                    return Ok(());
-                };
-                let Some(ext) = ext_osstr.to_str() else {
-                    return Ok(());
-                };
-
-                if valid_extensions.contains(&ext) {
-                    files.push(path);
-                    break;
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
 
 /// Process a folder containing BMS songs.
 pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessError> {
+    const VALID_EXTS: [&str; 5] = ["bms", "bme", "bml", "pms", "bmson"];
+    
     if !song_folder.exists() || !song_folder.is_dir() {
         return Err(ProcessError::InvalidSongsFolder());
     }
     
     // Get all song files (by extension) in the song folder
-    let mut bms_files = Vec::new();
-    get_bms_files(&mut bms_files, song_folder)?;
+    let bms_files: Vec<DirEntry> = WalkDir::new(song_folder).into_iter().filter_map(|file| {
+        let Ok(file) = file else { return None };
+        
+        let path = file.path();
+        let Some(extension) = path.extension() else { return None };
+        
+        let is_valid = VALID_EXTS
+            .iter()
+            .any(|valid_ext| valid_ext == &extension.to_string_lossy());
+        if path.is_file() && is_valid {
+            Some(file)
+        } else {
+            None
+        }
+    }).collect();
     
     // Iterate over songs in parallel
     bms_files.par_iter().for_each(|file| {
+        let path = file.path();
+        let str_path = path.to_str();
         let start = Instant::now();
         
         // Setup (parse) the song file as a renderer
-        match Renderer::new(&file) {
+        match Renderer::new(path) {
             // Generate the preview file
             Ok(render) => match render.process_bms_file(&args) {
                 Ok(_) => {
                     let end = Instant::now();
                     println!(
                         "processed {} in {:.2}s",
-                        file.to_str().unwrap(),
+                        str_path.unwrap(),
                         (end - start).as_secs_f64()
                     );
                 }
                 Err(e) => {
                     let _end = Instant::now();
-                    println!("failed {}: {}", file.to_str().unwrap(), e);
+                    println!("failed {}: {}", str_path.unwrap(), e);
                 }
             },
-            Err(e) => eprintln!("failed {}: {}", file.to_str().unwrap(), e),
+            Err(e) => eprintln!("failed {}: {}", str_path.unwrap(), e),
         }
     });
 
