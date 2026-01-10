@@ -8,45 +8,43 @@ use vorbis_rs::VorbisError;
 #[derive(Error, Debug)]
 pub enum ProcessError {
     #[error("songs folder is invalid")]
-    InvalidSongsFolder()
+    InvalidSongsFolder(),
+    #[error("failed to get songs")]
+    FailedSongIO(#[from] io::Error),
+    #[error("renderer failed")]
+    RendererFailed(#[from] RendererError),
 }
 
 #[derive(Error, Debug)]
 pub enum RendererError {
     #[error("failed to decode .bms file ({0}) with {1} format")]
     BMSDecodingError(String, String),
-    #[error("failed to parse .bms file")]
+    #[error("failed to parse .bms file: {0}")]
     BMSParsingError(#[from] ParseErrorWithRange),
-    #[error("failed to read .bms file")]
+    #[error("failed to read .bms file: {0}")]
     FileNotFound(#[from] io::Error),
 }
 
 #[derive(Error, Debug)]
 pub enum AudioError {
-    #[error("failed to find audio file: {0}")]
-    FileNotFound(String),
-    #[error("invalid sample offset: {0} with channel size {1}")]
-    InvalidSampleOffset(usize, usize),
-    #[error("invalid dst bounds: [{0}..{1}] of len {2}")]
-    InvalidDestinationBounds(usize, usize, usize),
-    #[error("invalid src bounds: [{0}..{1}] of len {2}")]
-    InvalidSourceBounds(usize, usize, usize),
-    #[error("unsupported number of channels for destination")]
-    InvalidChannelCount(),
-    #[error("failed to get channel info")]
-    MissingChannelInfo(),
-    #[error("failed to get sample rate")]
-    MissingSampleRateInfo(),
-    #[error("resampler construction error")]
+    #[error("mismatched sample rate")]
+    MismatchedSampleRate(),
+    #[error("failed to find audio file")]
+    FileNotFound(),
+    #[error("failed to get vital codec info")]
+    MissingCodecInfo(),
+    #[error("invalid codec info")]
+    InvalidCodecInfo(),
+    #[error("resampler construction error: {0}")]
     ResamplerConstructionError(#[from] ResamplerConstructionError),
-    #[error("invalid audio size")]
+    #[error("invalid audio size: {0}")]
     InvalidAudioSize(#[from] SizeError),
-    #[error("resampler error")]
+    #[error("resampler error: {0}")]
     ResamplerError(#[from] ResampleError),
-    #[error("I/O error")]
+    #[error("I/O error: {0}")]
     IOError(#[from] io::Error),
-    #[error("audio decoder error")]
+    #[error("audio decoder error: {0}")]
     DecodingError(#[from] symphonia::core::errors::Error),
-    #[error("vorbis encoder error")]
+    #[error("vorbis encoder error: {0}")]
     VorbisEncodingError(#[from] VorbisError),
 }

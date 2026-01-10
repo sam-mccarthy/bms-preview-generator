@@ -2,7 +2,7 @@ pub mod renderer;
 pub use renderer::Renderer;
 
 mod errors;
-mod audio;
+mod stereo_audio;
 
 pub use clap::Parser;
 
@@ -11,7 +11,7 @@ pub use clap::Parser;
 pub struct Args {
     /// The directory containing songs to process in a batch.
     #[arg(short, long)]
-    pub songs_folder: String,
+    pub songs_folder: Option<String>,
 
     /// The starting time of the preview (seconds)
     #[arg(long, default_value_t = 20.0)]
@@ -20,14 +20,14 @@ pub struct Args {
     /// The ending time of the preview (seconds)
     #[arg(long, default_value_t = 40.0)]
     pub end: f64,
-    
+
     /// The starting time of the preview (percentage of song)
-    #[arg(long, default_value_t, default_value_t = 0.0)]
-    pub start_p: f64,
-    
+    #[arg(long)]
+    pub start_p: Option<f64>,
+
     /// The starting time of the preview (percentage of song)
-    #[arg(long, default_value_t, default_value_t = 0.0)]
-    pub end_p: f64,
+    #[arg(long)]
+    pub end_p: Option<f64>,
 
     /// The duration to fade in the preview
     #[arg(long, default_value_t = 2.0)]
@@ -40,37 +40,29 @@ pub struct Args {
     /// The filename of the preview file
     #[arg(long, default_value = "preview_auto_generated.ogg")]
     pub preview_file: String,
-    
+
     /// Render mono instead of stereo preview audio
     #[arg(long, default_value_t = false)]
     pub mono_audio: bool,
-    
-    /// Render mono using only the left audio channel instead of averaging stereo
-    #[arg(long, default_value_t = false)]
-    pub lazy_mono: bool,
-    
-    /// The sample rate of the preview file. If zero, will default to the sample rate used by the song
-    #[arg(long, default_value_t = 0)]
-    pub sample_rate: u32,
+
+    /// The sample rate of the preview file.
+    #[arg(long)]
+    pub sample_rate: Option<u32>,
 
     /// Scale volume by percentage
     #[arg(long, default_value_t = 100.0)]
     pub volume: f32,
-    
+
     /// Overwrite existing preview files
     #[arg(long, default_value_t = true)]
     pub overwrite: bool,
-    
-    /// The size of chunks to pass to the Vorbis encoder
-    #[arg(long, default_value_t = 1024)]
-    pub encoding_step_size: usize
 }
 
 use errors::ProcessError;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, io};
-use rayon::prelude::*;
 
 fn get_bms_files(files: &mut Vec<PathBuf>, dir: &Path) -> io::Result<()> {
     let valid_extensions = ["bms", "bme", "bml", "pms", "bmson"];
@@ -106,22 +98,29 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
     }
 
     let mut bms_files = Vec::new();
-    get_bms_files(&mut bms_files, song_folder).expect("failed to get BMS files");
-    
+    get_bms_files(&mut bms_files, song_folder)?;
+
     bms_files.par_iter().for_each(|file| {
         let start = Instant::now();
 
-        let Ok(render) = Renderer::new(&file) else {
-            return;
-        };
-
-        if let Err(e) = render.process_bms_file(&args) {
-            eprintln!("{}", e);
+        match Renderer::new(&file) {
+            Ok(render) => match render.process_bms_file(&args) {
+                Ok(_) => {
+                    let end = Instant::now();
+                    println!(
+                        "processed {} in {:.2}s",
+                        file.to_str().unwrap(),
+                        (end - start).as_secs_f64()
+                    );
+                }
+                Err(e) => {
+                    let _end = Instant::now();
+                    println!("failed {}: {}", file.to_str().unwrap(), e);
+                }
+            },
+            Err(e) => eprintln!("failed {}: {}", file.to_str().unwrap(), e),
         }
-
-        let end = Instant::now();
-        println!("processed {} in {:.2}s", file.to_str().unwrap(), (end - start).as_secs_f64());
     });
-    
+
     Ok(())
 }
