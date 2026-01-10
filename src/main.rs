@@ -6,7 +6,7 @@ use std::path::Path;
 
 fn main() {
     let args = Args::parse();
-
+    
     if let Some(song_folder) = &args.songs_folder {
         let path = Path::new(&song_folder);
 

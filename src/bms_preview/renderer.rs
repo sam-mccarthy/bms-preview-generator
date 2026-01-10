@@ -22,6 +22,7 @@ pub struct Renderer {
 
 impl Renderer {
     // referenced from https://github.com/approvers/bms-bounce/blob/master/bms-rs-wasm/src/lib.rs
+    /// Get the timings of sounds in a BMS file along with their paths.
     fn get_wav_timings(&self) -> HashMap<PathBuf, Vec<f64>> {
         let bpm_changes = &self.bms.bpm.bpm_changes;
         let section_len_changes = &self.bms.section_len.section_len_changes;
@@ -98,17 +99,21 @@ impl Renderer {
 
     pub fn process_bms_file(&self, args: &Args) -> Result<(), AudioError> {
         let preview_path = self.base_path.join(&args.preview_file);
-
+        // If the BMS file has a preview set, then that'll be played by default, regardless of if we generate a preview.
         if let Some(_) = self.bms.music_info.preview_music {
             return Ok(());
         }
-
+        // If we don't allow overwrites, and a preview already exists by the same name, we'll skip.
         if !args.overwrite && preview_path.exists() {
             return Ok(());
         }
-
+        
         let mut sample_rate = args.sample_rate;
         let mut song_length: f64 = 0.0;
+        
+        // Convert the HashMap of paths and timings into a vector of probes and timings.
+        // Getting the probes before actually loading audio allows us to filter notes based on
+        // play time and sound length before putting effort into decoding.
         let probes: Vec<(Probe, Vec<f64>)> = self
             .get_wav_timings()
             .into_iter()
@@ -118,13 +123,16 @@ impl Renderer {
                 let Some(length) = probe.get_length() else {
                     return None;
                 };
-
+                
+                // If the sample rate is none, then we'll set it as the sample rate of the first
+                // sound that we come across here.
                 if sample_rate.is_none()
                     && let Some(probe_rate) = probe.track.codec_params.sample_rate
                 {
                     sample_rate = Some(probe_rate);
                 }
-
+                
+                // The length of the song will be the maximum end time of any sound.
                 time_vec.iter().for_each(|time| {
                     song_length = song_length.max(*time + length);
                 });
@@ -132,36 +140,44 @@ impl Renderer {
                 Some((probe, time_vec.clone()))
             })
             .collect();
-
+        
+        // Get the desired start and end of the preview.
+        // If start / end percentages are passed, then we'll set the start and end according to song length.
         let mut start = args.start;
         let mut end = args.end;
         if let (Some(start_p), Some(end_p)) = (args.start_p, args.end_p) {
             start = (start_p / 100.0) * song_length;
             end = (end_p / 100.0) * song_length;
         }
-
+        
+        // If the start and end aren't ordered, we'll swap them around.
         if start > end {
             let tmp = start;
             start = end;
             end = tmp;
         }
         
+        // Create a new stereo buffer for our preview.
         let mut render = StereoAudio::new(end - start, sample_rate.unwrap());
+        // Iterate over all of the probes and play their timings.
         probes.into_iter().for_each(|probe_time| {
             let (probe, timings) = probe_time;
             let Some(length) = probe.get_length() else {
                 return;
             };
-
+            
+            // Filter out times that don't fit within the preview.
             let mut filtered_times = timings
                 .iter()
                 .filter(|time| **time < end && (**time + length) > start)
                 .peekable();
-
+            
+            // If no filtered times exist, then this sound isn't played during the preview,
+            // so we'll just return.
             if filtered_times.peek().is_none() {
                 return;
             }
-
+            
             let Ok(mut audio) = StereoAudio::load(probe) else {
                 return;
             };
@@ -169,25 +185,29 @@ impl Renderer {
             if let Err(_) = audio.match_sample_rate(&render) {
                 return;
             }
-
+            
             filtered_times.for_each(|time| {
                 let _ = render.add(&audio, *time - start);
             });
         });
-
+        
+        // Fade the start and end, set the volume, and output the final preview audio.
         render.fade(args.fade_in, args.fade_out);
         render.attenuate(args.volume / 100.0);
         render.encode(preview_path, args.mono_audio)?;
 
         Ok(())
     }
-
+    
+    /// Create a new renderer, parsing the BMS file.
     pub fn new(bms_path: &PathBuf) -> Result<Self, RendererError> {
         let path_str = bms_path.to_string_lossy().to_string();
-
+        
+        // Read the BMS file and find its encoding.
         let file_bytes = fs::read(bms_path)?;
         let encoding = Encoding::for_label(&file_bytes).unwrap_or(UTF_8);
-
+        
+        // Decode the file with the proper encoding.
         let (source, _, failed) = encoding.decode(&file_bytes);
         if failed {
             return Err(RendererError::BMSDecodingError(
@@ -195,7 +215,7 @@ impl Renderer {
                 encoding.name().to_string(),
             ));
         }
-
+        
         let BmsOutput { bms, .. } = parse_bms(&source, default_config())?;
 
         Ok(Self {
