@@ -57,6 +57,14 @@ pub struct Args {
     /// Overwrite existing preview files.
     #[arg(long, default_value_t = true)]
     pub overwrite: bool,
+    
+    /// Show the amount of time spent processing files.
+    #[arg(long, default_value_t = false)]
+    pub show_process_time: bool,
+    
+    /// Process files in parallel.
+    #[arg(long, default_value_t = false)]
+    pub parallel: bool,
 }
 
 use errors::ProcessError;
@@ -65,6 +73,43 @@ use walkdir::{DirEntry, WalkDir};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
+
+fn process_song(args: &Args) -> impl Fn(&DirEntry) {
+    move |file| {
+        let path = file.path();
+        let str_path = path.to_string_lossy();
+        let start = Instant::now();
+        
+        // Setup (parse) the song file as a renderer
+        match Renderer::new(path) {
+            // Generate the preview file
+            Ok(render) => match render.process_bms_file(&args) {
+                Ok(_) => {
+                    let end = Instant::now();
+                    if args.show_process_time {
+                        let elapsed = (end - start).as_secs_f64().to_string();
+                        
+                        println!(
+                            "{} [{}] in {:.4}{}.",
+                            "Success".green(),
+                            str_path.green(),
+                            elapsed.green(),
+                            "s".green(),
+                        );
+                    } else {
+                        println!(
+                            "{} [{}]",
+                            "Success".green(),
+                            str_path.green(),
+                        );
+                    }
+                }
+                Err(e) => eprintln!("{} [{}]: {}.", "Fail".red(), str_path, e.to_string().red()),
+            },
+            Err(e) => eprintln!("{} [{}]: {}.", "Fail".red(), str_path, e.to_string().red()),
+        }
+    }
+}
 
 /// Process a folder containing BMS songs.
 pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessError> {
@@ -84,9 +129,12 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
         let parent = path.parent()?.to_path_buf();
         let Some(extension) = path.extension() else { return None };
         
+        // Check if the extension if one of the valid BMS extensions
         let is_valid = VALID_EXTS
             .iter()
             .any(|valid_ext| valid_ext == &extension.to_string_lossy());
+        // If the path is a file, is valid, and is in a folder that hasn't been explored, then
+        // we'll add it to the collection.
         if path.is_file() && is_valid && !explored_folders.contains(&parent) {
             explored_folders.insert(parent);
             Some(file)
@@ -96,35 +144,12 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
     }).collect();
     
     // Iterate over songs in parallel
-    bms_files.par_iter().for_each(|file| {
-        let path = file.path();
-        let name = path.to_string_lossy();
-        let start = Instant::now();
-        
-        // Setup (parse) the song file as a renderer
-        match Renderer::new(path) {
-            // Generate the preview file
-            Ok(render) => match render.process_bms_file(&args) {
-                Ok(_) => {
-                    let end = Instant::now();
-                    let elapsed = (end - start).as_secs_f64().to_string();
-                    
-                    println!(
-                        "{} [{}] in {:.4}{}.",
-                        "Success".green(),
-                        name.yellow(),
-                        elapsed.green(),
-                        "s".green(),
-                    );
-                }
-                Err(e) => {
-                    let _end = Instant::now();
-                    eprintln!("{} [{}]: {}.", "Fail".red(), name, e.to_string().red());
-                }
-            },
-            Err(e) => eprintln!("{} [{}]: {}.", "Fail".red(), name, e.to_string().red()),
-        }
-    });
+    if args.parallel {
+        bms_files.par_iter().for_each(process_song(args));
+    } else {
+        bms_files.iter().for_each(process_song(args));
+    }
+    
 
     Ok(())
 }
