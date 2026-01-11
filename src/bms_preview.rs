@@ -61,6 +61,7 @@ pub struct Args {
 use errors::ProcessError;
 use rayon::prelude::*;
 use walkdir::{DirEntry, WalkDir};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -72,17 +73,20 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
         return Err(ProcessError::InvalidSongsFolder());
     }
     
+    let mut explored_folders: HashSet<PathBuf> = HashSet::new();
     // Get all song files (by extension) in the song folder
     let bms_files: Vec<DirEntry> = WalkDir::new(song_folder).into_iter().filter_map(|file| {
         let Ok(file) = file else { return None };
         
         let path = file.path();
+        let parent = path.parent()?.to_path_buf();
         let Some(extension) = path.extension() else { return None };
         
         let is_valid = VALID_EXTS
             .iter()
             .any(|valid_ext| valid_ext == &extension.to_string_lossy());
-        if path.is_file() && is_valid {
+        if path.is_file() && is_valid && !explored_folders.contains(&parent) {
+            explored_folders.insert(parent);
             Some(file)
         } else {
             None
