@@ -226,7 +226,9 @@ impl Renderer {
         // We handle BMSON files separately, and then convert to BMS.
         let bms;
         if extension == "bmson" {
-            let bmson = parse_bmson(&source).bmson.ok_or(RendererError::BMSONParsingError())?;
+            let bmson = parse_bmson(&source)
+                .bmson
+                .ok_or(RendererError::BMSONParsingError())?;
             bms = Bms::from_bmson(bmson).bms;
         } else {
             bms = parse_bms(&source, default_config()).bms?;
