@@ -42,14 +42,14 @@ jobs:
           args: "--locked --release"
           strip: true
       - name: Upload built binary
-        if: ${{ matrix.platform != "windows-latest" }}
+        if: ${{ matrix.platform != 'windows-latest' }}
         uses: svenstaro/upload-release-action@2.11.3
         with:
           file: target/${{ matrix.platform.target }}/release/bms-preview-generator
           asset_name: bms-preview-${{ matrix.platform.os-name }}
           tag: latest
       - name: Upload built binary
-        if: ${{ matrix.platform == "windows-latest" }}
+        if: ${{ matrix.platform == 'windows-latest' }}
         uses: svenstaro/upload-release-action@2.11.3
         with:
           file: target/${{ matrix.platform.target }}/release/bms-preview-generator.exe
