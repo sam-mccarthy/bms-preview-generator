@@ -47,11 +47,11 @@ jobs:
         with:
           file: target/${{ matrix.platform.target }}/release/bms-preview-generator
           asset_name: bms-preview-${{ matrix.platform.os-name }}
-          tag: latest
+          tag: ${{ github.ref }}
       - name: Upload built binary
         if: ${{ matrix.platform == 'windows-latest' }}
         uses: svenstaro/upload-release-action@2.11.3
         with:
           file: target/${{ matrix.platform.target }}/release/bms-preview-generator.exe
           asset_name: bms-preview-${{ matrix.platform.os-name }}
-          tag: latest
+          tag: ${{ github.ref }}
