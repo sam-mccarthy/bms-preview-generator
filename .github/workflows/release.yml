@@ -43,6 +43,6 @@ jobs:
       - name: Publish artifacts and release
         uses: houseabsolute/actions-rust-release@v0
         with:
-          executable-name: bms-preview
+          executable-name: bms-preview-generator
           target: ${{ matrix.platform.target }}
           changes-file: "CHANGELOG.md"
