@@ -63,7 +63,7 @@ pub struct Args {
     pub show_process_time: bool,
     
     /// Process files in parallel.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     pub parallel: bool,
 }
 
@@ -90,17 +90,21 @@ fn process_song(args: &Args) -> impl Fn(&DirEntry) {
                         let elapsed = (end - start).as_secs_f64().to_string();
                         
                         println!(
-                            "{} [{}] in {:.4}{}.",
+                            "{} {}{}{} in {:.4}{}.",
                             "Success".green(),
-                            str_path.green(),
+                            "[".yellow(),
+                            str_path,
+                            "]".yellow(),
                             elapsed.green(),
                             "s".green(),
                         );
                     } else {
                         println!(
-                            "{} [{}]",
+                            "{} {}{}{}",
                             "Success".green(),
-                            str_path.green(),
+                            "[".yellow(),
+                            str_path,
+                            "]".yellow(),
                         );
                     }
                 }
