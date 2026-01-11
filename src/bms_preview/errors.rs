@@ -17,12 +17,16 @@ pub enum ProcessError {
 
 #[derive(Error, Debug)]
 pub enum RendererError {
-    #[error("failed to decode .bms file ({0}) with {1} format")]
+    #[error("failed to decode bms file ({0}) with {1} format")]
     BMSDecodingError(String, String),
-    #[error("failed to parse .bms file: {0}")]
+    #[error("failed to parse bms file: {0}")]
     BMSParsingError(#[from] SourceRangeMixin<ParseError>),
-    #[error("failed to read .bms file: {0}")]
+    #[error("failed to parse bmson file")]
+    BMSONParsingError(),
+    #[error("failed to read bms file: {0}")]
     FileNotFound(#[from] io::Error),
+    #[error("path failure while processing")]
+    BMSPathError(),
 }
 
 #[derive(Error, Debug)]

@@ -73,6 +73,7 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
         return Err(ProcessError::InvalidSongsFolder());
     }
     
+    // Track folders that have been explored to avoid rendering same song multiple times
     let mut explored_folders: HashSet<PathBuf> = HashSet::new();
     // Get all song files (by extension) in the song folder
     let bms_files: Vec<DirEntry> = WalkDir::new(song_folder).into_iter().filter_map(|file| {

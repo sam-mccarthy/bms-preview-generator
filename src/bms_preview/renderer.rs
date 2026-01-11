@@ -7,6 +7,7 @@ use bms_rs::bms::model::Bms;
 use bms_rs::bms::prelude::ObjTime;
 use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::bms::{Decimal, default_config, parse_bms};
+use bms_rs::bmson::parse_bmson;
 use encoding_rs::{Encoding, SHIFT_JIS};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -205,6 +206,7 @@ impl Renderer {
         // Convert the AsRef into an actual path, and get its string for potential error
         let path_ref = bms_path.as_ref();
         let path_str = path_ref.to_string_lossy().to_string();
+        let extension = path_ref.extension().ok_or(RendererError::BMSPathError())?;
 
         // Read the BMS file and find its encoding.
         // Default as SHIFT_JIS seems to work best. UTF-8 default breaks significantly.
@@ -220,8 +222,15 @@ impl Renderer {
             ));
         }
 
-        // Parse the BMS file. We should handle warnings here eventually - maybe a verbosity flag? TODO.
-        let bms = parse_bms(&source, default_config()).bms?;
+        // Parse the BMS file.
+        // We handle BMSON files separately, and then convert to BMS.
+        let bms;
+        if extension == "bmson" {
+            let bmson = parse_bmson(&source).bmson.ok_or(RendererError::BMSONParsingError())?;
+            bms = Bms::from_bmson(bmson).bms;
+        } else {
+            bms = parse_bms(&source, default_config()).bms?;
+        }
 
         Ok(Self {
             bms,
