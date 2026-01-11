@@ -1,4 +1,5 @@
 pub mod renderer;
+use colored::Colorize;
 pub use renderer::Renderer;
 
 mod errors;
@@ -97,7 +98,7 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
     // Iterate over songs in parallel
     bms_files.par_iter().for_each(|file| {
         let path = file.path();
-        let str_path = path.to_str();
+        let name = path.to_string_lossy();
         let start = Instant::now();
         
         // Setup (parse) the song file as a renderer
@@ -106,18 +107,22 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
             Ok(render) => match render.process_bms_file(&args) {
                 Ok(_) => {
                     let end = Instant::now();
+                    let elapsed = (end - start).as_secs_f64().to_string();
+                    
                     println!(
-                        "processed {} in {:.2}s",
-                        str_path.unwrap(),
-                        (end - start).as_secs_f64()
+                        "{} [{}] in {:.4}{}.",
+                        "Success".green(),
+                        name.yellow(),
+                        elapsed.green(),
+                        "s".green(),
                     );
                 }
                 Err(e) => {
                     let _end = Instant::now();
-                    println!("failed {}: {}", str_path.unwrap(), e);
+                    eprintln!("{} [{}]: {}.", "Fail".red(), name, e.to_string().red());
                 }
             },
-            Err(e) => eprintln!("failed {}: {}", str_path.unwrap(), e),
+            Err(e) => eprintln!("{} [{}]: {}.", "Fail".red(), name, e.to_string().red()),
         }
     });
 

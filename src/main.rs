@@ -1,5 +1,7 @@
 mod bms_preview;
 
+use colored::Colorize;
+
 use crate::bms_preview::*;
 
 use std::path::Path;
@@ -12,10 +14,10 @@ fn main() {
 
         match process_folder(&path.to_path_buf(), &args) {
             Ok(_) => {
-                println!("finished processing")
+                println!("{}", "Finished!".green())
             }
             Err(e) => {
-                println!("failed: {}", e);
+                println!("{}: {}.", "Failed".red(), e.to_string().red());
             }
         }
     }
