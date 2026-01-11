@@ -1,11 +1,12 @@
-name: Create a new release
+name: Build cross-platform binaries for release
 
 on:
-  workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   release:
-    name: Release - ${{ matrix.platform.os-name }}
+    name: ${{ matrix.platform.os-name }}
     strategy:
       matrix:
         platform:
@@ -40,9 +41,17 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: "--locked --release"
           strip: true
-      - name: Publish artifacts and release
-        uses: houseabsolute/actions-rust-release@v0
+      - name: Upload built binary
+        if: ${{ matrix.platform != "windows-latest" }}
+        uses: svenstaro/upload-release-action@2.11.3
         with:
-          executable-name: bms-preview-generator
-          target: ${{ matrix.platform.target }}
-          changes-file: "CHANGELOG.md"
+          file: target/${{ matrix.platform.target }}/release/bms-preview-generator
+          asset_name: bms-preview-${{ matrix.platform.os-name }}
+          tag: latest
+      - name: Upload built binary
+        if: ${{ matrix.platform == "windows-latest" }}
+        uses: svenstaro/upload-release-action@2.11.3
+        with:
+          file: target/${{ matrix.platform.target }}/release/bms-preview-generator.exe
+          asset_name: bms-preview-${{ matrix.platform.os-name }}
+          tag: latest
