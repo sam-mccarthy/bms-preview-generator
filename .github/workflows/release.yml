@@ -56,5 +56,5 @@ jobs:
         uses: svenstaro/upload-release-action@2.11.3
         with:
           file: bms-preview-${{ matrix.platform.os-name }}.zip
-          asset_name: bms-preview-${{ matrix.platform.os-name }}
+          asset_name: bms-preview-${{ matrix.platform.os-name }}.zip
           tag: ${{ github.ref }}
