@@ -13,22 +13,27 @@ jobs:
           - os-name: windows-x86_64
             runs-on: windows-latest
             target: x86_64-pc-windows-msvc
+            file: bms-preview-generator.exe
 
           - os-name: macOS-x86_64
             runs-on: macOS-latest
             target: x86_64-apple-darwin
+            file: bms-preview-generator
 
           - os-name: macOS-aarch64
             runs-on: macOS-latest
             target: aarch64-apple-darwin
+            file: bms-preview-generator
 
           - os-name: linux-x86_64
             runs-on: ubuntu-24.04
             target: x86_64-unknown-linux-musl
+            file: bms-preview-generator
 
           - os-name: linux-aarch64
             runs-on: ubuntu-24.04
             target: aarch64-unknown-linux-musl
+            file: bms-preview-generator
 
     runs-on: ${{ matrix.platform.runs-on }}
     steps:
@@ -41,17 +46,15 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: "--locked --release"
           strip: true
-      - name: Upload built binary
-        if: ${{ matrix.platform != 'windows-latest' }}
+      - name: Archive binary
+        uses: thedoctor0/zip-release@0.7.5
+        with:
+          type: zip
+          filename: bms-preview-${{ matrix.platform.os-name }}.zip
+          path: target/${{ matrix.platform.target }}/release/${{ matrix.platform.file }}
+      - name: Upload zipped binary
         uses: svenstaro/upload-release-action@2.11.3
         with:
-          file: target/${{ matrix.platform.target }}/release/bms-preview-generator
-          asset_name: bms-preview-${{ matrix.platform.os-name }}
-          tag: ${{ github.ref }}
-      - name: Upload built binary
-        if: ${{ matrix.platform == 'windows-latest' }}
-        uses: svenstaro/upload-release-action@2.11.3
-        with:
-          file: target/${{ matrix.platform.target }}/release/bms-preview-generator.exe
+          file: bms-preview-${{ matrix.platform.os-name }}.zip
           asset_name: bms-preview-${{ matrix.platform.os-name }}
           tag: ${{ github.ref }}
