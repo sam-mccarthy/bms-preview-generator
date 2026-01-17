@@ -65,6 +65,10 @@ pub struct Args {
     /// Process files in parallel.
     #[arg(long, default_value_t = true)]
     pub parallel: bool,
+    
+    /// Only process one chart per folder.
+    #[arg(long, default_value_t = true)]
+    pub skip_duplicates: bool,
 }
 
 use errors::ProcessError;
@@ -144,7 +148,10 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
             // If the path is a file, is valid, and is in a folder that hasn't been explored, then
             // we'll add it to the collection.
             if path.is_file() && is_valid && !explored_folders.contains(&parent) {
-                explored_folders.insert(parent);
+                if args.skip_duplicates { 
+                    explored_folders.insert(parent);
+                }
+                
                 Some(file)
             } else {
                 None
