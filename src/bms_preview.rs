@@ -78,7 +78,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use walkdir::{DirEntry, WalkDir};
 
-fn process_song(args: &Args) -> impl Fn(&DirEntry) {
+fn process_song(args: &Args) -> impl Fn(DirEntry) {
     move |file| {
         let path = file.path();
         let str_path = path.to_string_lossy();
@@ -130,7 +130,7 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
     // Track folders that have been explored to avoid rendering same song multiple times
     let mut explored_folders: HashSet<PathBuf> = HashSet::new();
     // Get all song files (by extension) in the song folder
-    let bms_files: Vec<DirEntry> = WalkDir::new(song_folder)
+    let bms_files = WalkDir::new(song_folder)
         .into_iter()
         .filter_map(|file| {
             let Ok(file) = file else { return None };
@@ -156,14 +156,13 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
             } else {
                 None
             }
-        })
-        .collect();
+        });
 
     // Iterate over songs in parallel
     if args.parallel {
-        bms_files.par_iter().for_each(process_song(args));
+        bms_files.par_bridge().for_each(process_song(args));
     } else {
-        bms_files.iter().for_each(process_song(args));
+        bms_files.for_each(process_song(args));
     }
 
     Ok(())
