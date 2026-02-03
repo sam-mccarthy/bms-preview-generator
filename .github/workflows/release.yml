@@ -3,6 +3,7 @@ name: Build cross-platform binaries for release
 on:
   release:
     types: [published]
+  push:
 
 jobs:
   release:
@@ -52,9 +53,18 @@ jobs:
           type: zip
           filename: bms-preview-${{ matrix.platform.os-name }}.zip
           path: target/${{ matrix.platform.target }}/release/${{ matrix.platform.file }}
-      - name: Upload zipped binary
+          custom: -j
+      - name: Upload zipped binary to release
+        if: ${{ github.event_name == 'release' }}
         uses: svenstaro/upload-release-action@2.11.3
         with:
           file: bms-preview-${{ matrix.platform.os-name }}.zip
           asset_name: bms-preview-${{ matrix.platform.os-name }}.zip
           tag: ${{ github.ref }}
+      - name: Upload zipped binary to artifacts
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+           name: bms-preview-${{ matrix.platform.os-name }}.zip
+           path: bms-preview-${{ matrix.platform.os-name }}.zip
+           retention-days: 1
