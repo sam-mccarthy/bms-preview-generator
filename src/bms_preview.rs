@@ -55,62 +55,41 @@ pub struct Args {
     pub volume: f32,
 
     /// Overwrite existing preview files.
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     pub overwrite: bool,
 
-    /// Show the amount of time spent processing files.
+    /// Process files in serial (avoid multithreading).
     #[arg(long, default_value_t = false)]
-    pub show_process_time: bool,
+    pub serial: bool,
 
-    /// Process files in parallel.
-    #[arg(long, default_value_t = true)]
-    pub parallel: bool,
-    
-    /// Only process one chart per folder.
-    #[arg(long, default_value_t = true)]
-    pub skip_duplicates: bool,
+    /// Render each chart in a folder. Only one preview file will be generated - it will be overwritten by itself.
+    #[arg(long, default_value_t = false)]
+    pub render_duplicates: bool,
 }
 
 use errors::ProcessError;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::time::Instant;
 use walkdir::{DirEntry, WalkDir};
 
 fn process_song(args: &Args) -> impl Fn(DirEntry) {
     move |file| {
         let path = file.path();
         let str_path = path.to_string_lossy();
-        let start = Instant::now();
 
         // Setup (parse) the song file as a renderer
         match Renderer::new(path) {
             // Generate the preview file
             Ok(render) => match render.process_bms_file(&args) {
                 Ok(_) => {
-                    let end = Instant::now();
-                    if args.show_process_time {
-                        let elapsed = (end - start).as_secs_f64().to_string();
-
-                        println!(
-                            "{} {}{}{} in {:.4}{}.",
-                            "Success".green(),
-                            "[".yellow(),
-                            str_path,
-                            "]".yellow(),
-                            elapsed.green(),
-                            "s".green(),
-                        );
-                    } else {
-                        println!(
-                            "{} {}{}{}",
-                            "Success".green(),
-                            "[".yellow(),
-                            str_path,
-                            "]".yellow(),
-                        );
-                    }
+                    println!(
+                        "{} {}{}{}",
+                        "Success".green(),
+                        "[".yellow(),
+                        str_path,
+                        "]".yellow(),
+                    );
                 }
                 Err(e) => eprintln!("{} [{}]: {}.", "Fail".red(), str_path, e.to_string().red()),
             },
@@ -148,10 +127,10 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
             // If the path is a file, is valid, and is in a folder that hasn't been explored, then
             // we'll add it to the collection.
             if path.is_file() && is_valid && !explored_folders.contains(&parent) {
-                if args.skip_duplicates { 
+                if !args.render_duplicates {
                     explored_folders.insert(parent);
                 }
-                
+
                 Some(file)
             } else {
                 None
@@ -159,7 +138,7 @@ pub fn process_folder(song_folder: &PathBuf, args: &Args) -> Result<(), ProcessE
         });
 
     // Iterate over songs in parallel
-    if args.parallel {
+    if !args.serial {
         bms_files.par_bridge().for_each(process_song(args));
     } else {
         bms_files.for_each(process_song(args));
