@@ -8,11 +8,7 @@ use bms_rs::bms::prelude::ObjTime;
 use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::bms::{Decimal, default_config, parse_bms};
 use bms_rs::bmson::parse_bmson;
-use encoding_rs::Decoder;
-use encoding_rs::UTF_8;
-use encoding_rs::UTF_16BE;
-use encoding_rs::UTF_16LE;
-use encoding_rs::{Encoding, SHIFT_JIS};
+use chardetng::EncodingDetector;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fs;
@@ -100,7 +96,7 @@ impl Renderer {
 
         timings
     }
-    
+
     /// Process a BMS file, outputting an audio preview file.
     pub fn process_bms_file(&self, args: &Args) -> Result<(), AudioError> {
         let preview_path = self.base_path.join(&args.preview_file);
@@ -205,38 +201,18 @@ impl Renderer {
 
         Ok(())
     }
-    
-    /// Decode a string by trial and error.
+
+    /// Decode a string.
     fn decode(bytes: &Vec<u8>) -> Result<String, RendererError>{
-        // If a BOM is available, then we'll try to find the encoding via that.
-        if let Some((encoding, _)) = Encoding::for_bom(&bytes[..]) {
-            let (source, _, failed) = encoding.decode(bytes);
+        // Create a new detector and feed it the byte sequence
+        let mut detector = EncodingDetector::new();
+        detector.feed(&bytes, true);
+        
+        // Guess the encoding and decode it
+        let encoding = detector.guess(None, true);
+        let (source, _, failure) = encoding.decode(bytes);
 
-            if !failed {
-                return Ok(source.to_string());
-            }
-        }
-
-        // Otherwise, we'll try the most likely encodings in order.
-        let (source, _, failed) = SHIFT_JIS.decode(bytes);
-        if !failed {
-            return Ok(source.to_string());
-        }
-
-        let (source, _, failed) = UTF_8.decode(bytes);
-        if !failed {
-            return Ok(source.to_string());
-        }
-
-        // Note: apparently, if a BOM is not available, BE is to be assumed.
-        // Just for completeness, I've included both (BE and LE) consecutively here.
-        let (source, _, failed) = UTF_16BE.decode(bytes);
-        if !failed {
-            return Ok(source.to_string());
-        }
-
-        let (source, _, failed) = UTF_16LE.decode(bytes);
-        if !failed {
+        if !failure {
             return Ok(source.to_string());
         }
 
@@ -247,7 +223,6 @@ impl Renderer {
     pub fn new(bms_path: impl AsRef<Path>) -> Result<Self, RendererError> {
         // Convert the AsRef into an actual path, and get its string for potential error
         let path_ref = bms_path.as_ref();
-        let path_str = path_ref.to_string_lossy().to_string();
         let extension = path_ref.extension().ok_or(RendererError::BMSPathError())?;
 
         // Read the BMS file and find its encoding.
