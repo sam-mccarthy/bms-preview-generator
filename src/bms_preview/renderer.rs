@@ -8,6 +8,10 @@ use bms_rs::bms::prelude::ObjTime;
 use bms_rs::bms::prelude::{BpmChangeObj, KeyLayoutBeat};
 use bms_rs::bms::{Decimal, default_config, parse_bms};
 use bms_rs::bmson::parse_bmson;
+use encoding_rs::Decoder;
+use encoding_rs::UTF_8;
+use encoding_rs::UTF_16BE;
+use encoding_rs::UTF_16LE;
 use encoding_rs::{Encoding, SHIFT_JIS};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -96,7 +100,8 @@ impl Renderer {
 
         timings
     }
-
+    
+    /// Process a BMS file, outputting an audio preview file.
     pub fn process_bms_file(&self, args: &Args) -> Result<(), AudioError> {
         let preview_path = self.base_path.join(&args.preview_file);
         // If the BMS file has a preview set, then that'll be played by default, regardless of if we generate a preview.
@@ -200,6 +205,43 @@ impl Renderer {
 
         Ok(())
     }
+    
+    /// Decode a string by trial and error.
+    fn decode(bytes: &Vec<u8>) -> Result<String, RendererError>{
+        // If a BOM is available, then we'll try to find the encoding via that.
+        if let Some((encoding, _)) = Encoding::for_bom(&bytes[..]) {
+            let (source, _, failed) = encoding.decode(bytes);
+
+            if !failed {
+                return Ok(source.to_string());
+            }
+        }
+
+        // Otherwise, we'll try the most likely encodings in order.
+        let (source, _, failed) = SHIFT_JIS.decode(bytes);
+        if !failed {
+            return Ok(source.to_string());
+        }
+
+        let (source, _, failed) = UTF_8.decode(bytes);
+        if !failed {
+            return Ok(source.to_string());
+        }
+
+        // Note: apparently, if a BOM is not available, BE is to be assumed.
+        // Just for completeness, I've included both (BE and LE) consecutively here.
+        let (source, _, failed) = UTF_16BE.decode(bytes);
+        if !failed {
+            return Ok(source.to_string());
+        }
+
+        let (source, _, failed) = UTF_16LE.decode(bytes);
+        if !failed {
+            return Ok(source.to_string());
+        }
+
+        return Err(RendererError::BMSDecodingError());
+    }
 
     /// Create a new renderer, parsing the BMS file.
     pub fn new(bms_path: impl AsRef<Path>) -> Result<Self, RendererError> {
@@ -211,16 +253,9 @@ impl Renderer {
         // Read the BMS file and find its encoding.
         // Default as SHIFT_JIS seems to work best. UTF-8 default breaks significantly.
         let file_bytes = fs::read(path_ref)?;
-        let encoding = Encoding::for_label(&file_bytes[..]).unwrap_or(SHIFT_JIS);
 
         // Decode the file with the proper encoding.
-        let (source, _, failed) = encoding.decode(&file_bytes);
-        if failed {
-            return Err(RendererError::BMSDecodingError(
-                path_str,
-                encoding.name().to_string(),
-            ));
-        }
+        let source = Renderer::decode(&file_bytes)?;
 
         // Parse the BMS file.
         // We handle BMSON files separately, and then convert to BMS.

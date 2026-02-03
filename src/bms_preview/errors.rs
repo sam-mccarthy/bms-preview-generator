@@ -17,8 +17,8 @@ pub enum ProcessError {
 
 #[derive(Error, Debug)]
 pub enum RendererError {
-    #[error("failed to decode bms file ({0}) with {1} format")]
-    BMSDecodingError(String, String),
+    #[error("failed to decode bms file")]
+    BMSDecodingError(),
     #[error("failed to parse bms file: {0}")]
     BMSParsingError(#[from] SourceRangeMixin<ParseError>),
     #[error("failed to parse bmson file")]
